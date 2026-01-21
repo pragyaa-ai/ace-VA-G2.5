@@ -1,0 +1,202 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+enum VoiceAgentEngine {
+  PRIMARY
+  SECONDARY
+}
+
+enum Accent {
+  INDIAN
+  AMERICAN
+  BRITISH
+}
+
+enum Language {
+  ENGLISH
+  HINDI
+}
+
+// Voice names mapped to Indian names (internal Gemini mapping hidden)
+// Ananya=Aoede, Priya=Puck, Chitra=Charon, Kavya=Kore, Farhan=Fenrir
+enum VoiceName {
+  ANANYA
+  PRIYA
+  CHITRA
+  KAVYA
+  FARHAN
+}
+
+model VoiceAgent {
+  id            String            @id @default(cuid())
+  name          String
+  phoneNumber   String?
+  engine        VoiceAgentEngine  @default(PRIMARY)
+  isActive      Boolean           @default(true)
+
+  // Key configurable parameters
+  greeting      String            @default("Hello! Welcome to Kia. How can I help you today?")
+  accent        Accent            @default(INDIAN)
+  language      Language          @default(ENGLISH)
+  voiceName     VoiceName         @default(ANANYA)
+
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  callFlow      CallFlow?
+  guardrails    Guardrail[]
+  voiceProfile  VoiceProfile?
+  sessions      CallSession[]
+  feedback      Feedback[]
+
+  @@index([isActive])
+  @@index([phoneNumber])
+}
+
+model CallFlow {
+  id            String    @id @default(cuid())
+  voiceAgentId  String    @unique
+  greeting      String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  voiceAgent    VoiceAgent  @relation(fields: [voiceAgentId], references: [id], onDelete: Cascade)
+  steps         CallFlowStep[]
+}
+
+model CallFlowStep {
+  id          String   @id @default(cuid())
+  callFlowId  String
+  order       Int
+  title       String
+  content     String
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  callFlow    CallFlow @relation(fields: [callFlowId], references: [id], onDelete: Cascade)
+
+  @@unique([callFlowId, order])
+  @@index([callFlowId])
+}
+
+model Guardrail {
+  id            String      @id @default(cuid())
+  voiceAgentId  String
+  name          String
+  description   String?
+  ruleText      String
+  enabled       Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  voiceAgent    VoiceAgent  @relation(fields: [voiceAgentId], references: [id], onDelete: Cascade)
+
+  @@index([voiceAgentId])
+  @@index([enabled])
+}
+
+model VoiceProfile {
+  id            String      @id @default(cuid())
+  voiceAgentId  String      @unique
+  voiceName     String
+  accentNotes   String?
+  settingsJson  Json?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  voiceAgent    VoiceAgent  @relation(fields: [voiceAgentId], references: [id], onDelete: Cascade)
+}
+
+model Feedback {
+  id            String      @id @default(cuid())
+  voiceAgentId  String?
+  source        String      @default("testing")
+  message       String
+  createdAt     DateTime    @default(now())
+
+  voiceAgent    VoiceAgent? @relation(fields: [voiceAgentId], references: [id], onDelete: SetNull)
+
+  @@index([voiceAgentId])
+  @@index([createdAt])
+}
+
+model CallSession {
+  id            String            @id @default(cuid())
+  voiceAgentId  String?
+  engine        VoiceAgentEngine  @default(PRIMARY)
+  direction     String            @default("inbound")
+  fromNumber    String?
+  toNumber      String?
+  startedAt     DateTime          @default(now())
+  endedAt       DateTime?
+  durationSec   Int?
+  minutesBilled Decimal?          @db.Decimal(10, 2)
+  metaJson      Json?
+
+  voiceAgent    VoiceAgent?       @relation(fields: [voiceAgentId], references: [id], onDelete: SetNull)
+
+  @@index([voiceAgentId])
+  @@index([startedAt])
+  @@index([engine])
+}
+
+// ---- NextAuth (Prisma Adapter compatible shape) ----
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts Account[]
+  sessions Session[]
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
