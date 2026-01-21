@@ -3,64 +3,115 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 async function main() {
-  // Check if Kia VoiceAgent already exists
+  // Check if USV Exit Interview Scheduler already exists
   const existing = await prisma.voiceAgent.findFirst({
-    where: { name: "Kia VoiceAgent" },
+    where: { name: "USV Exit Interview Scheduler" },
   });
 
   if (existing) {
-    console.log("Kia VoiceAgent already exists:", existing.id);
+    console.log("USV Exit Interview Scheduler already exists:", existing.id);
     return;
   }
 
-  // Create Kia VoiceAgent with default configuration
-  const kiaVoiceAgent = await prisma.voiceAgent.create({
+  // Create USV Exit Interview Scheduler with default configuration
+  const usvVoiceAgent = await prisma.voiceAgent.create({
     data: {
-      name: "Kia VoiceAgent",
+      name: "USV Exit Interview Scheduler",
       phoneNumber: "+91 9876543210",
       engine: "PRIMARY",
       greeting:
-        "Namaste! Welcome to Kia Motors. I'm Ananya, your sales assistant. How can I help you today?",
+        "Hello. This call is from AceNgage on behalf of USV. We would like to schedule your exit interview with an HR counsellor. May I take a few moments to find a convenient time for you?",
       accent: "INDIAN",
       language: "ENGLISH",
-      voiceName: "ANANYA",
+      voiceName: "KAVYA",
       isActive: true,
     },
   });
 
-  console.log("Created Kia VoiceAgent:", kiaVoiceAgent.id);
+  console.log("Created USV Exit Interview Scheduler:", usvVoiceAgent.id);
+
+  await prisma.calloutSchedule.create({
+    data: {
+      voiceAgentId: usvVoiceAgent.id,
+      runAtLocalTime: "11:00",
+      timezone: "Asia/Kolkata",
+      attemptsPerDay: 3,
+      maxDays: 2,
+      escalationEnabled: true,
+    },
+  });
+
+  await prisma.voiceProfile.create({
+    data: {
+      voiceAgentId: usvVoiceAgent.id,
+      voiceName: "KAVYA",
+      accentNotes: "Acengage callout + telephony settings",
+      settingsJson: {
+        acengage: {
+          getUrl: "https://api-app.acengage.com/campaign/bot/get_nc_employees/1",
+          updateUrlTemplate:
+            "https://api-app.acengage.com/campaign/bot/update_nc_schedule/{employeeId}",
+          employeeIdField: "id",
+          phoneField: "phone_number",
+        },
+        telephony: {
+          provider: "ELISION",
+          wsUrl: "ws://0.0.0.0:8083/wsAcengage",
+          sampleRateInput: 8000,
+          sampleRateOutput: 8000,
+          audioFormat: "PCM_INT16",
+          bufferSizeMs: 200,
+          connectionTimeoutMs: 30000,
+          reconnectAttempts: 3,
+          reconnectDelayMs: 1000,
+          authUrl: "https://webrtc.elisiontec.com/api/login",
+          addLeadUrl: "https://webrtc.elisiontec.com/api/add-lead",
+          username: "ACESUP",
+          password: "",
+          listId: "250707112431",
+          source: "Bot",
+          addToHopper: "Y",
+          commentsTemplate: "wss://acengageva.pragyaa.ai/wsAcengage?phone=elision",
+          accessToken: "",
+        },
+      },
+    },
+  });
 
   // Add default call flow
   await prisma.callFlow.create({
     data: {
-      voiceAgentId: kiaVoiceAgent.id,
+      voiceAgentId: usvVoiceAgent.id,
       greeting:
-        "Namaste! Welcome to Kia Motors. I'm Ananya, your sales assistant. How can I help you today?",
+        "Hello. This call is from AceNgage on behalf of USV. We would like to schedule your exit interview with an HR counsellor. May I take a few moments to find a convenient time for you?",
       steps: {
         create: [
           {
             order: 0,
-            title: "Collect Name",
-            content: "Ask for the customer's name in a friendly manner.",
+            title: "Confirm Purpose",
+            content:
+              "Explain the exit interview purpose if asked and confirm they are okay to proceed.",
             enabled: true,
           },
           {
             order: 1,
-            title: "Identify Interest",
+            title: "Collect Date & Time",
             content:
-              "Ask which Kia model they're interested in (Seltos, Sonet, Carens, EV6).",
+              "Ask for the preferred date and time for the exit interview (together).",
             enabled: true,
           },
           {
             order: 2,
-            title: "Collect Contact",
-            content: "Request their phone number for follow-up by the sales team.",
+            title: "Confirm Availability",
+            content:
+              "Confirm the date and time back to the caller and check acceptance.",
             enabled: true,
           },
           {
             order: 3,
-            title: "Schedule Test Drive",
-            content: "Offer to schedule a test drive at their nearest dealership.",
+            title: "Close & Handoff",
+            content:
+              "Confirm the HR counsellor will call at the scheduled time and end politely.",
             enabled: true,
           },
         ],
@@ -72,19 +123,27 @@ async function main() {
   await prisma.guardrail.createMany({
     data: [
       {
-        voiceAgentId: kiaVoiceAgent.id,
-        name: "No Competitor Comparisons",
-        description: "Avoid comparing Kia cars to competitors",
+        voiceAgentId: usvVoiceAgent.id,
+        name: "No Sensitive Data",
+        description: "Avoid collecting sensitive or personal data",
         ruleText:
-          "Never compare Kia vehicles to competitors like Hyundai, Tata, or Maruti. Focus only on Kia's features and benefits.",
+          "Do not ask for or accept passwords, OTPs, credit card details, or other sensitive information. If requested, offer a human follow-up.",
         enabled: true,
       },
       {
-        voiceAgentId: kiaVoiceAgent.id,
-        name: "No Pricing Commitments",
-        description: "Don't commit to specific prices",
+        voiceAgentId: usvVoiceAgent.id,
+        name: "No Commitments",
+        description: "Avoid making guarantees or policy commitments",
         ruleText:
-          "Do not commit to specific prices or discounts. Direct pricing questions to the dealership.",
+          "Do not promise outcomes, policy changes, or confidentiality terms beyond the standard exit interview process.",
+        enabled: true,
+      },
+      {
+        voiceAgentId: usvVoiceAgent.id,
+        name: "Respect Objections",
+        description: "End call politely on refusal",
+        ruleText:
+          "If the caller refuses or asks not to be contacted, acknowledge and end the call immediately.",
         enabled: true,
       },
     ],

@@ -15,10 +15,11 @@ export default function NewVoiceAgentPage() {
     name: "",
     phoneNumber: "",
     engine: "PRIMARY" as keyof typeof ENGINE_LABELS,
-    greeting: "Hello! Welcome to Kia. How can I help you today?",
+    greeting:
+      "Hello. This call is from AceNgage on behalf of USV. We would like to schedule your exit interview with an HR counsellor. May I take a few moments to find a convenient time for you?",
     accent: "INDIAN" as keyof typeof ACCENTS,
     language: "ENGLISH" as keyof typeof LANGUAGES,
-    voiceName: "ANANYA" as keyof typeof VOICE_NAMES,
+    voiceName: "KAVYA" as keyof typeof VOICE_NAMES,
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -51,7 +52,7 @@ export default function NewVoiceAgentPage() {
             <Input
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="e.g. Kia VoiceAgent"
+              placeholder="e.g. USV Exit Interview Scheduler"
               required
             />
           </div>
@@ -74,7 +75,7 @@ export default function NewVoiceAgentPage() {
             <Textarea
               value={form.greeting}
               onChange={(e) => setForm({ ...form, greeting: e.target.value })}
-              placeholder="Hello! Welcome to Kia..."
+              placeholder="Hello. This call is from AceNgage on behalf of USV..."
               rows={3}
               required
             />

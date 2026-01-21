@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createVoiceAgentSchema } from "@/lib/validation";
+import { startCalloutScheduler } from "@/services/calloutScheduler";
 
 export async function GET() {
+  startCalloutScheduler();
   const voiceAgents = await prisma.voiceAgent.findMany({
     orderBy: { createdAt: "desc" },
     include: {
@@ -14,6 +16,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    startCalloutScheduler();
     const body = await req.json();
     const data = createVoiceAgentSchema.parse(body);
     const voiceAgent = await prisma.voiceAgent.create({ data });

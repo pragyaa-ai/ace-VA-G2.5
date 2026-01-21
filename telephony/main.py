@@ -39,13 +39,15 @@ class TelephonySession:
 
 
 def _read_prompt_text() -> str:
-    prompt_file = os.getenv("PROMPT_FILE", os.path.join(os.path.dirname(__file__), "kia_prompt.txt"))
+    prompt_file = os.getenv(
+        "PROMPT_FILE", os.path.join(os.path.dirname(__file__), "acengage_prompt.txt")
+    )
     try:
         with open(prompt_file, "r", encoding="utf-8") as f:
             return f.read()
     except Exception:
         # fallback: minimal prompt if file missing
-        return "You are a helpful Kia Motors sales assistant. Be concise and friendly."
+        return "You are a helpful AceNgage scheduling assistant. Be concise and friendly."
 
 
 def _extract_audio_b64_from_gemini_message(msg: Dict[str, Any]) -> Optional[str]:

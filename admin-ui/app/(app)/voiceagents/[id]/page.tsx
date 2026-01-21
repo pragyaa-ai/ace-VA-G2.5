@@ -167,7 +167,7 @@ export default function VoiceAgentOverviewPage() {
             <Input
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="e.g. Kia VoiceAgent"
+              placeholder="e.g. USV Exit Interview Scheduler"
             />
           </div>
           <div>
@@ -193,7 +193,7 @@ export default function VoiceAgentOverviewPage() {
             value={form.greeting}
             onChange={(e) => setForm({ ...form, greeting: e.target.value })}
             rows={3}
-            placeholder="Hello! Welcome to..."
+            placeholder="Hello. This call is from AceNgage on behalf of USV..."
           />
           <p className="mt-1 text-xs text-slate-400">
             The first message spoken when a call connects

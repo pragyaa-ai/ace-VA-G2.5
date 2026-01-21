@@ -66,7 +66,7 @@ export default function CallFlowPage() {
           value={greeting}
           onChange={(e) => setGreeting(e.target.value)}
           rows={3}
-          placeholder="Hello! Welcome to Kia..."
+          placeholder="Hello. This call is from AceNgage on behalf of USV..."
         />
       </Card>
 

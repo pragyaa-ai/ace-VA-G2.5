@@ -34,6 +34,22 @@ enum VoiceName {
   FARHAN
 }
 
+enum CalloutJobStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  ESCALATED
+}
+
+enum CalloutAttemptStatus {
+  QUEUED
+  TRIGGERED
+  COMPLETED
+  FAILED
+  NO_ANSWER
+  BUSY
+}
+
 model VoiceAgent {
   id            String            @id @default(cuid())
   name          String
@@ -55,9 +71,84 @@ model VoiceAgent {
   voiceProfile  VoiceProfile?
   sessions      CallSession[]
   feedback      Feedback[]
+  calloutSchedule CalloutSchedule?
+  calloutJobs     CalloutJob[]
 
   @@index([isActive])
   @@index([phoneNumber])
+}
+
+model CalloutSchedule {
+  id                String    @id @default(cuid())
+  voiceAgentId      String    @unique
+  isActive          Boolean   @default(true)
+  runAtLocalTime    String    @default("11:00")
+  timezone          String    @default("Asia/Kolkata")
+  attemptsPerDay    Int       @default(3)
+  maxDays           Int       @default(2)
+  escalationEnabled Boolean   @default(true)
+  configJson        Json?
+  lastRunAt         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  voiceAgent        VoiceAgent @relation(fields: [voiceAgentId], references: [id], onDelete: Cascade)
+
+  @@index([isActive])
+}
+
+model CalloutJob {
+  id                String           @id @default(cuid())
+  voiceAgentId      String
+  employeeExternalId String?
+  employeeJson      Json
+  status            CalloutJobStatus @default(PENDING)
+  totalAttempts     Int              @default(0)
+  lastAttemptAt     DateTime?
+  nextAttemptAt     DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  voiceAgent        VoiceAgent @relation(fields: [voiceAgentId], references: [id], onDelete: Cascade)
+  attempts          CalloutAttempt[]
+  outcome           CalloutOutcome?
+
+  @@index([voiceAgentId])
+  @@index([status])
+  @@index([employeeExternalId])
+}
+
+model CalloutAttempt {
+  id              String               @id @default(cuid())
+  calloutJobId    String
+  attemptNumber   Int
+  localDate       String
+  status          CalloutAttemptStatus @default(QUEUED)
+  requestedAt     DateTime?
+  completedAt     DateTime?
+  responseJson    Json?
+  errorMessage    String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  calloutJob      CalloutJob @relation(fields: [calloutJobId], references: [id], onDelete: Cascade)
+
+  @@index([calloutJobId])
+  @@unique([calloutJobId, attemptNumber])
+}
+
+model CalloutOutcome {
+  id                           String   @id @default(cuid())
+  calloutJobId                 String   @unique
+  callbackDate                 String?
+  callbackTime                 String?
+  nonContactableStatusNodeId   Int?
+  notes                        String?
+  postedAt                     DateTime?
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
+
+  calloutJob                   CalloutJob @relation(fields: [calloutJobId], references: [id], onDelete: Cascade)
 }
 
 model CallFlow {

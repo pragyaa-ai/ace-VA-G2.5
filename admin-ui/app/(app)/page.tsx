@@ -150,7 +150,7 @@ export default function DashboardPage() {
             <h4 className="font-medium text-slate-900">Getting Started</h4>
             <p className="text-sm text-slate-500 mt-1">
               Run <code className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-xs font-mono">npx prisma db seed</code> to 
-              create the default "Kia VoiceAgent" with preconfigured settings, call flow, and guardrails.
+              create the default "USV Exit Interview Scheduler" with preconfigured settings, call flow, and guardrails.
             </p>
           </div>
         </div>

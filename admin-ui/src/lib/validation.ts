@@ -30,7 +30,13 @@ export const createVoiceAgentSchema = z.object({
   name: z.string().min(1, "Name is required").max(100),
   phoneNumber: z.string().optional(),
   engine: z.enum(["PRIMARY", "SECONDARY"]).default("PRIMARY"),
-  greeting: z.string().min(1, "Greeting is required").max(500).default("Hello! Welcome to Kia. How can I help you today?"),
+  greeting: z
+    .string()
+    .min(1, "Greeting is required")
+    .max(500)
+    .default(
+      "Hello. This call is from AceNgage on behalf of USV. We would like to schedule your exit interview with an HR counsellor. May I take a few moments to find a convenient time for you?"
+    ),
   accent: z.enum(["INDIAN", "AMERICAN", "BRITISH"]).default("INDIAN"),
   language: z.enum(["ENGLISH", "HINDI"]).default("ENGLISH"),
   voiceName: z.enum(["ANANYA", "PRIYA", "CHITRA", "KAVYA", "FARHAN"]).default("ANANYA"),
@@ -75,6 +81,40 @@ export const upsertVoiceProfileSchema = z.object({
 });
 
 export type UpsertVoiceProfileInput = z.infer<typeof upsertVoiceProfileSchema>;
+
+// ---------- Callout Config ----------
+export const updateCalloutScheduleSchema = z.object({
+  isActive: z.boolean(),
+  runAtLocalTime: z.string().min(1).max(10),
+  timezone: z.string().min(1).max(50),
+  attemptsPerDay: z.number().int().min(1).max(10),
+  maxDays: z.number().int().min(1).max(14),
+  escalationEnabled: z.boolean(),
+});
+
+export const updateAcengageConfigSchema = z.object({
+  getUrl: z.string().url(),
+  updateUrlTemplate: z.string().min(1).max(500),
+  employeeIdField: z.string().min(1).max(100),
+  phoneField: z.string().min(1).max(100),
+});
+
+export const updateCalloutConfigSchema = z.object({
+  schedule: updateCalloutScheduleSchema,
+  acengage: updateAcengageConfigSchema,
+});
+
+export type UpdateCalloutConfigInput = z.infer<typeof updateCalloutConfigSchema>;
+
+// ---------- Callout Outcome ----------
+export const updateCalloutOutcomeSchema = z.object({
+  callbackDate: z.string().optional(),
+  callbackTime: z.string().optional(),
+  nonContactableStatusNodeId: z.number().int().optional(),
+  notes: z.string().max(2000).optional(),
+});
+
+export type UpdateCalloutOutcomeInput = z.infer<typeof updateCalloutOutcomeSchema>;
 
 // ---------- Feedback ----------
 export const createFeedbackSchema = z.object({

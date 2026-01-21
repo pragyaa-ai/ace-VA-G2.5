@@ -1,4 +1,4 @@
-# Kia VoiceAgent Admin UI
+# AceNgage VoiceAgent Admin UI
 
 Admin UI for managing VoiceAgent configurations and tracking usage.
 
@@ -55,16 +55,16 @@ npx prisma generate
 npx prisma migrate dev --name init
 ```
 
-## Seed Kia VoiceAgent
+## Seed USV Exit Interview Scheduler
 
-After migration, run the seed to create the default Kia VoiceAgent:
+After migration, run the seed to create the default USV Exit Interview Scheduler:
 
 ```bash
 npx prisma db seed
 ```
 
-This creates a pre-configured "Kia VoiceAgent" with:
-- Greeting: "Namaste! Welcome to Kia Motors..."
+This creates a pre-configured "USV Exit Interview Scheduler" with:
+- Greeting: "Hello. This call is from AceNgage on behalf of USV..."
 - Voice: Ananya (Indian)
 - Accent: Indian
 - Language: English

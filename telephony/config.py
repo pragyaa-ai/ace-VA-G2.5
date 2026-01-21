@@ -1,5 +1,5 @@
 """
-Telephony service configuration (Waybeo) for Kia VoiceAgent.
+Telephony service configuration (Waybeo) for AceNgage VoiceAgent.
 
 This service is intentionally separated from the UI Gemini proxy so that:
 - UI deployment remains stable (Gemini WS routed via nginx on /geminiWs)
@@ -39,7 +39,7 @@ class Config:
     GEMINI_MODEL: str = os.getenv(
         "GEMINI_MODEL", "gemini-live-2.5-flash-native-audio"
     )
-    GEMINI_VOICE: str = os.getenv("GEMINI_VOICE", "Aoede")
+    GEMINI_VOICE: str = os.getenv("GEMINI_VOICE", "Kore")
 
     # Audio
     TELEPHONY_SR: int = int(os.getenv("TELEPHONY_SR", "8000"))  # Waybeo input/output
@@ -75,7 +75,7 @@ class Config:
 
     def print_config(self) -> None:
         print("=" * 68)
-        print("📞 Kia VoiceAgent Telephony (Gemini Live) – Configuration")
+        print("📞 AceNgage VoiceAgent Telephony (Gemini Live) – Configuration")
         print("=" * 68)
         print(f"🌐 Server: ws://{self.HOST}:{self.PORT}{self.WS_PATH}")
         print(f"🧠 Gemini model: {self.GEMINI_MODEL}")

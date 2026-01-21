@@ -6,10 +6,10 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Card } from "@/components/ui/Card";
 
-// Waybeo telephony configuration defaults
+// Elision telephony configuration defaults
 const DEFAULT_CONFIG = {
-  provider: "WAYBEO",
-  wsUrl: "ws://0.0.0.0:8081/wsNew1",
+  provider: "ELISION",
+  wsUrl: "ws://0.0.0.0:8083/wsAcengage",
   sampleRateInput: 8000,
   sampleRateOutput: 8000,
   audioFormat: "PCM_INT16",
@@ -17,6 +17,15 @@ const DEFAULT_CONFIG = {
   connectionTimeoutMs: 30000,
   reconnectAttempts: 3,
   reconnectDelayMs: 1000,
+  authUrl: "https://webrtc.elisiontec.com/api/login",
+  addLeadUrl: "https://webrtc.elisiontec.com/api/add-lead",
+  username: "ACESUP",
+  password: "",
+  listId: "250707112431",
+  source: "Bot",
+  addToHopper: "Y",
+  commentsTemplate: "wss://acengageva.pragyaa.ai/wsAcengage?phone=elision",
+  accessToken: "",
 };
 
 interface TelephonyConfig {
@@ -29,6 +38,15 @@ interface TelephonyConfig {
   connectionTimeoutMs: number;
   reconnectAttempts: number;
   reconnectDelayMs: number;
+  authUrl: string;
+  addLeadUrl: string;
+  username: string;
+  password: string;
+  listId: string;
+  source: string;
+  addToHopper: string;
+  commentsTemplate: string;
+  accessToken: string;
 }
 
 export default function TelephonyPage() {
@@ -86,10 +104,10 @@ export default function TelephonyPage() {
             </svg>
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Waybeo Telephony</h2>
+            <h2 className="text-lg font-semibold text-slate-900">Elision Telephony</h2>
             <p className="text-sm text-slate-500 mt-1">
-              Current telephony provider for inbound/outbound calls. Waybeo streams audio via WebSocket
-              using 8kHz PCM format.
+              Current telephony provider for outbound callouts. Elision uses login + add-lead APIs and
+              connects callers to the WebSocket endpoint for audio streaming.
             </p>
           </div>
           <span className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-700">
@@ -112,10 +130,10 @@ export default function TelephonyPage() {
             <Input
               value={config.wsUrl}
               onChange={(e) => setConfig({ ...config, wsUrl: e.target.value })}
-              placeholder="ws://0.0.0.0:8081/wsNew1"
+              placeholder="ws://0.0.0.0:8083/wsAcengage"
             />
             <p className="mt-1 text-xs text-slate-400">
-              Format: ws://host:port/path (e.g. ws://0.0.0.0:8081/wsNew1 for test, ws://0.0.0.0:8080/ws for prod)
+              Format: ws://host:port/path (e.g. ws://0.0.0.0:8083/wsAcengage for test, ws://0.0.0.0:8082/ws for prod)
             </p>
           </div>
 
@@ -143,7 +161,7 @@ export default function TelephonyPage() {
       <Card className="p-6 space-y-5">
         <div className="border-b border-slate-100 pb-4">
           <h3 className="text-base font-semibold text-slate-900">Audio Settings</h3>
-          <p className="text-sm text-slate-500">Sample rates and buffer configuration for Waybeo streams</p>
+          <p className="text-sm text-slate-500">Sample rates and buffer configuration for Elision streams</p>
         </div>
 
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
@@ -154,7 +172,7 @@ export default function TelephonyPage() {
               value={config.sampleRateInput}
               onChange={(e) => setConfig({ ...config, sampleRateInput: parseInt(e.target.value) || 8000 })}
             />
-            <p className="mt-1 text-xs text-slate-400">Waybeo sends 8000 Hz</p>
+            <p className="mt-1 text-xs text-slate-400">Elision sends 8000 Hz</p>
           </div>
 
           <div>
@@ -164,7 +182,7 @@ export default function TelephonyPage() {
               value={config.sampleRateOutput}
               onChange={(e) => setConfig({ ...config, sampleRateOutput: parseInt(e.target.value) || 8000 })}
             />
-            <p className="mt-1 text-xs text-slate-400">Waybeo expects 8000 Hz</p>
+            <p className="mt-1 text-xs text-slate-400">Elision expects 8000 Hz</p>
           </div>
 
           <div>
@@ -187,6 +205,106 @@ export default function TelephonyPage() {
               onChange={(e) => setConfig({ ...config, bufferSizeMs: parseInt(e.target.value) || 200 })}
             />
             <p className="mt-1 text-xs text-slate-400">Jitter buffer</p>
+          </div>
+        </div>
+      </Card>
+
+      {/* Elision Callout Settings */}
+      <Card className="p-6 space-y-5">
+        <div className="border-b border-slate-100 pb-4">
+          <h3 className="text-base font-semibold text-slate-900">Elision Callout Settings</h3>
+          <p className="text-sm text-slate-500">
+            These values are used to authenticate and trigger outbound callouts.
+          </p>
+        </div>
+
+        <div className="grid gap-5 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Auth URL</label>
+            <Input
+              value={config.authUrl}
+              onChange={(e) => setConfig({ ...config, authUrl: e.target.value })}
+              placeholder="https://webrtc.elisiontec.com/api/login"
+            />
+          </div>
+
+          <div className="sm:col-span-2">
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Add Lead URL</label>
+            <Input
+              value={config.addLeadUrl}
+              onChange={(e) => setConfig({ ...config, addLeadUrl: e.target.value })}
+              placeholder="https://webrtc.elisiontec.com/api/add-lead"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Username</label>
+            <Input
+              value={config.username}
+              onChange={(e) => setConfig({ ...config, username: e.target.value })}
+              placeholder="ACESUP"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Password</label>
+            <Input
+              type="password"
+              value={config.password}
+              onChange={(e) => setConfig({ ...config, password: e.target.value })}
+              placeholder="Enter password"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">List ID</label>
+            <Input
+              value={config.listId}
+              onChange={(e) => setConfig({ ...config, listId: e.target.value })}
+              placeholder="250707112431"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Source</label>
+            <Input
+              value={config.source}
+              onChange={(e) => setConfig({ ...config, source: e.target.value })}
+              placeholder="Bot"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Add To Hopper</label>
+            <Input
+              value={config.addToHopper}
+              onChange={(e) => setConfig({ ...config, addToHopper: e.target.value })}
+              placeholder="Y"
+            />
+          </div>
+
+          <div className="sm:col-span-2">
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Comments / WS URL</label>
+            <Input
+              value={config.commentsTemplate}
+              onChange={(e) => setConfig({ ...config, commentsTemplate: e.target.value })}
+              placeholder="wss://acengageva.pragyaa.ai/wsAcengage?phone=elision"
+            />
+            <p className="mt-1 text-xs text-slate-400">
+              This value is sent to Elision as the comments field and should include the WebSocket URL.
+            </p>
+          </div>
+
+          <div className="sm:col-span-2">
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Access Token</label>
+            <Input
+              value={config.accessToken}
+              onChange={(e) => setConfig({ ...config, accessToken: e.target.value })}
+              placeholder="Paste token from login response"
+            />
+            <p className="mt-1 text-xs text-slate-400">
+              Tokens are short-lived. Regenerate via the login API when needed.
+            </p>
           </div>
         </div>
       </Card>

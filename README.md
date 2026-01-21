@@ -1,4 +1,4 @@
-# Kia VoiceAgent — UI + Telephony WebSockets
+# AceNgage VoiceAgent — UI + Telephony WebSockets
 
 This repo is a **VoiceAgent WebSocket stack** for:
 
@@ -15,7 +15,7 @@ It uses a **real-time native-audio VoiceAgent backend** (configured in the runti
 - **HTTP UI**: defaults to `http://127.0.0.1:3001`
 - **WS proxy (internal)**: defaults to `ws://127.0.0.1:9001`
 - Intended to be exposed via **nginx** as:
-  - UI: `https://<domain>/kiavoiceagent/`
+- UI: `https://<domain>/acengagevoiceagent/`
   - UI WS: `wss://<domain>/geminiWs` → `127.0.0.1:9001`
 
 ### 2) Telephony WS service (`telephony/main.py`)
@@ -32,7 +32,7 @@ For telephony details, see `telephony/README.md`.
 ### UI + VoiceAgent WS proxy
 
 ```bash
-cd Kia-VA-G2.5
+cd ace-VA-G2.5
 python3 -m pip install -r requirements.txt
 gcloud auth application-default login
 HTTP_PORT=3001 WS_PORT=9001 python3 server.py
@@ -46,7 +46,7 @@ Open `http://localhost:3001` and set:
 ### Telephony service (test port)
 
 ```bash
-cd Kia-VA-G2.5/telephony
+cd ace-VA-G2.5/telephony
 python3 -m pip install -r requirements.txt
 GCP_PROJECT_ID=voiceagentprojects HOST=0.0.0.0 PORT=8081 WS_PATH=/wsNew1 python3 main.py
 ```
@@ -61,6 +61,52 @@ You can point the provider to either:
 - **Via nginx (WSS)**: `wss://<telephony-domain>/wsNew1?agent=spotlight`
 
 > Use **WSS** if your provider requires TLS. If the provider can connect to a raw VM port, WS is simplest.
+
+---
+
+## Elision telephony callouts
+
+Use Elision APIs to authenticate and trigger outbound callouts. The `comments` field should include
+the WebSocket URL that Elision will connect to (e.g. `/wsAcengage`).
+
+**1) Generate token**
+
+```bash
+curl --location 'https://webrtc.elisiontec.com/api/login' \
+  --form 'user="ACESUP"' \
+  --form 'password="Ace12345"'
+```
+
+**2) Trigger call**
+
+```bash
+curl --location 'https://webrtc.elisiontec.com/api/add-lead' \
+  --header 'Accept: application/json' \
+  --header 'Authorization: Bearer <TOKEN_FROM_LOGIN>' \
+  --form 'phone_number="9591987187"' \
+  --form 'list_id="250707112431"' \
+  --form 'source="Bot"' \
+  --form 'add_to_hopper="Y"' \
+  --form 'comments="wss://acengageva.pragyaa.ai/wsAcengage?phone=elision"'
+```
+
+> Tokens are short-lived; regenerate as needed.
+
+---
+
+## Acengage NC callout integration
+
+Admin UI supports Acengage callout scheduling and reporting:
+
+- Configure endpoints + schedule in **VoiceAgents → Acengage**
+- Configure Elision add‑lead details in **VoiceAgents → Telephony**
+- View attempts and outcomes in **VoiceAgents → Callouts**
+
+Defaults:
+- Daily run time: **11:00 IST**
+- Attempts: **3/day for 2 days (6 total)** with escalation on the 6th attempt
+- GET: `https://api-app.acengage.com/campaign/bot/get_nc_employees/1`
+- POST template: `https://api-app.acengage.com/campaign/bot/update_nc_schedule/{employeeId}`
 
 ---
 
@@ -103,7 +149,7 @@ If you already have unit files, keep them. If not, ask and we’ll generate the 
 
 ## Customization points (for other teams)
 
-- **Prompt / greeting**: update the system instructions in `frontend/index.html` (UI) and `telephony/kia_prompt.txt` (telephony)
+- **Prompt / greeting**: update the system instructions in `frontend/index.html` (UI) and `telephony/acengage_prompt.txt` (telephony)
 - **Voice**: UI voice is chosen in `frontend/index.html`; telephony defaults live in telephony config
 - **Routing**: keep UI WS separate from telephony WS to avoid port collisions
 - **Model**: keep fixed to your production VoiceAgent model unless you explicitly want to test other models

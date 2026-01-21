@@ -128,7 +128,7 @@ class GeminiLiveAPI {
     this.systemInstructions = "";
     this.googleGrounding = false;
     this.enableAffectiveDialog = false; // Default affective dialog
-    this.voiceName = "Puck"; // Default voice
+    this.voiceName = "Kore"; // Default voice
     this.temperature = 1.0; // Default temperature
     this.proactivity = { proactiveAudio: false }; // Proactivity config
     this.inputAudioTranscription = false;

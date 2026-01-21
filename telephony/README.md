@@ -1,11 +1,11 @@
-## Kia VoiceAgent Telephony (Waybeo) – Gemini Live MVP
+## AceNgage VoiceAgent Telephony (Waybeo) – Gemini Live MVP
 
 This folder adds a **Python telephony WebSocket service** modeled after the working `singleinterface2.0ws` release
 ([reference branch](https://github.com/pragyaa-ai/singleinterface2.0ws/tree/v4.3.7-kia-python-librosa-UI)).
 
 ### Goals (MVP)
 - Accept **Waybeo** telephony WebSocket connections (8kHz PCM sample arrays)
-- Bridge audio to **Gemini Live** (`gemini-live-2.5-flash-native-audio`) using the **same Kia prompt + Aoede voice**
+- Bridge audio to **Gemini Live** (`gemini-live-2.5-flash-native-audio`) using the **AceNgage prompt + Kore voice**
 - Support responsive playback and basic barge‑in (buffer clearing on interruption events)
 
 ### Ports / paths (match your existing convention)
