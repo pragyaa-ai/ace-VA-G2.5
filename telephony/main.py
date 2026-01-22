@@ -114,12 +114,19 @@ async def _gemini_reader(
             print(f"[{session.ucid}] ❌ Gemini reader error: {e}")
 
 
-async def handle_client(client_ws, path: str):
+async def handle_client(client_ws):
     cfg = Config()
     Config.validate(cfg)
 
-    # websockets passes the request path including querystring (e.g. "/wsNew1?agent=spotlight").
-    # Waybeo/Ozonetel commonly append query params; accept those as long as the base path matches.
+    # Get path from the websocket request (works with websockets 11+)
+    # For older versions, path was passed as second argument
+    try:
+        path = client_ws.request.path if hasattr(client_ws, 'request') else client_ws.path
+    except AttributeError:
+        path = cfg.WS_PATH  # fallback to configured path
+
+    # websockets passes the request path including querystring (e.g. "/wsAcengage?phone=elision").
+    # Accept those as long as the base path matches.
     base_path = (path or "").split("?", 1)[0]
 
     # Only accept configured base path (e.g. /ws or /wsNew1)
