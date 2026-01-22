@@ -204,9 +204,41 @@ async def handle_client(client_ws):
 
         # Process remaining messages
         async for raw in client_ws:
+            # Debug: log raw message type
+            if cfg.DEBUG:
+                if isinstance(raw, bytes):
+                    print(f"[{session.ucid}] 📨 Received binary data: {len(raw)} bytes")
+                else:
+                    preview = raw[:200] if len(raw) > 200 else raw
+                    print(f"[{session.ucid}] 📨 Received: {preview}")
+
             try:
-                msg = json.loads(raw)
+                msg = json.loads(raw) if isinstance(raw, str) else None
             except json.JSONDecodeError:
+                msg = None
+
+            # Handle binary audio data directly (Elision may send raw PCM)
+            if isinstance(raw, bytes):
+                # Assume 8kHz 16-bit PCM from Elision
+                import struct
+                samples = list(struct.unpack(f'<{len(raw)//2}h', raw))
+                session.input_buffer.extend(samples)
+                
+                chunks_sent = 0
+                while len(session.input_buffer) >= cfg.AUDIO_BUFFER_SAMPLES_INPUT:
+                    chunk = session.input_buffer[: cfg.AUDIO_BUFFER_SAMPLES_INPUT]
+                    session.input_buffer = session.input_buffer[cfg.AUDIO_BUFFER_SAMPLES_INPUT :]
+                    
+                    samples_np = audio_processor.waybeo_samples_to_np(chunk)
+                    audio_b64 = audio_processor.process_input_8k_to_gemini_16k_b64(samples_np)
+                    await session.gemini.send_audio_b64_pcm16(audio_b64)
+                    chunks_sent += 1
+                
+                if cfg.DEBUG and chunks_sent > 0:
+                    print(f"[{session.ucid}] 🎤 Sent {chunks_sent} binary audio chunk(s) to Gemini")
+                continue
+
+            if msg is None:
                 continue
 
             event = msg.get("event")
