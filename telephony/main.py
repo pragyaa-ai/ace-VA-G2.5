@@ -75,6 +75,24 @@ async def _gemini_reader(
             if cfg.DEBUG:
                 if msg.get("setupComplete"):
                     print(f"[{session.ucid}] 🏁 Gemini setupComplete")
+                elif msg.get("serverContent"):
+                    # Log what type of content we're getting
+                    sc = msg.get("serverContent", {})
+                    model_turn = sc.get("modelTurn", {})
+                    parts = model_turn.get("parts", [])
+                    has_audio = any(p.get("inlineData") for p in parts if isinstance(p, dict))
+                    has_text = any(p.get("text") for p in parts if isinstance(p, dict))
+                    if has_audio:
+                        print(f"[{session.ucid}] 🎵 Gemini sent audio response")
+                    if has_text:
+                        text_parts = [p.get("text") for p in parts if isinstance(p, dict) and p.get("text")]
+                        print(f"[{session.ucid}] 💬 Gemini text: {text_parts}")
+                    if sc.get("turnComplete"):
+                        print(f"[{session.ucid}] ✅ Gemini turn complete")
+                else:
+                    # Log unknown message types
+                    keys = list(msg.keys())
+                    print(f"[{session.ucid}] 📩 Gemini msg keys: {keys}")
 
             if _is_interrupted(msg):
                 # Barge-in: clear any queued audio to telephony
