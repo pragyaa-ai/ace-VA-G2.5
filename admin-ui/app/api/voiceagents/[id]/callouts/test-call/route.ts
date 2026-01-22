@@ -29,34 +29,43 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: "Telephony settings not configured" }, { status: 400 });
     }
 
-    const elisionAuthUrl = telephonyConfig.elisionAuthUrl as string;
-    const elisionAddLeadUrl = telephonyConfig.elisionAddLeadUrl as string;
-    const elisionUsername = telephonyConfig.elisionUsername as string;
-    const elisionPassword = telephonyConfig.elisionPassword as string;
-    const elisionListId = telephonyConfig.elisionListId as string;
-    const elisionSource = telephonyConfig.elisionSource as string || "Bot";
-    const elisionAddToHopper = telephonyConfig.elisionAddToHopper as string || "Y";
-    const elisionCommentsUrl = telephonyConfig.elisionCommentsUrl as string;
+    // Field names match what telephony page saves
+    const authUrl = telephonyConfig.authUrl as string;
+    const addLeadUrl = telephonyConfig.addLeadUrl as string;
+    const username = telephonyConfig.username as string;
+    const password = telephonyConfig.password as string;
+    const listId = telephonyConfig.listId as string;
+    const source = (telephonyConfig.source as string) || "Bot";
+    const addToHopper = (telephonyConfig.addToHopper as string) || "Y";
+    const commentsUrl = telephonyConfig.commentsTemplate as string;
 
-    if (!elisionAuthUrl || !elisionAddLeadUrl || !elisionUsername || !elisionPassword) {
-      return NextResponse.json({ error: "Elision credentials not fully configured" }, { status: 400 });
+    if (!authUrl || !addLeadUrl || !username || !password) {
+      return NextResponse.json({ 
+        error: "Elision credentials not fully configured. Please fill in Auth URL, Add Lead URL, Username, and Password in the Telephony tab.",
+        missing: {
+          authUrl: !authUrl,
+          addLeadUrl: !addLeadUrl,
+          username: !username,
+          password: !password,
+        }
+      }, { status: 400 });
     }
 
     // Get fresh token
-    const tokenResult = await getElisionToken(elisionAuthUrl, elisionUsername, elisionPassword);
+    const tokenResult = await getElisionToken(authUrl, username, password);
     if (!tokenResult.success || !tokenResult.token) {
       return NextResponse.json({ error: `Failed to get Elision token: ${tokenResult.error}` }, { status: 500 });
     }
 
     // Trigger call
     const callResult = await triggerElisionCall({
-      addLeadUrl: elisionAddLeadUrl,
+      addLeadUrl,
       token: tokenResult.token,
       phoneNumber,
-      listId: elisionListId,
-      source: elisionSource,
-      addToHopper: elisionAddToHopper,
-      comments: elisionCommentsUrl,
+      listId: listId || "",
+      source,
+      addToHopper,
+      comments: commentsUrl || "",
     });
 
     if (!callResult.success) {
