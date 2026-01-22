@@ -113,10 +113,10 @@ async def _gemini_reader(
                 chunk = session.output_buffer[: cfg.AUDIO_BUFFER_SAMPLES_OUTPUT]
                 session.output_buffer = session.output_buffer[cfg.AUDIO_BUFFER_SAMPLES_OUTPUT :]
 
-                # Convert PCM samples to μ-law and base64 for Elision
+                # Convert PCM samples to A-law and base64 for Elision
                 pcm_bytes = struct.pack(f'<{len(chunk)}h', *chunk)
-                mulaw_bytes = audioop.lin2ulaw(pcm_bytes, 2)
-                payload_b64 = base64.b64encode(mulaw_bytes).decode('ascii')
+                alaw_bytes = audioop.lin2alaw(pcm_bytes, 2)
+                payload_b64 = base64.b64encode(alaw_bytes).decode('ascii')
 
                 # Send in Elision format
                 payload = {
@@ -273,11 +273,11 @@ async def handle_client(client_ws):
                 if not payload_b64:
                     continue
 
-                # Decode base64 to bytes (μ-law encoded audio)
+                # Decode base64 to bytes (A-law encoded audio)
                 try:
-                    mulaw_bytes = base64.b64decode(payload_b64)
-                    # Convert μ-law to linear PCM (16-bit signed)
-                    pcm_bytes = audioop.ulaw2lin(mulaw_bytes, 2)
+                    alaw_bytes = base64.b64decode(payload_b64)
+                    # Convert A-law to linear PCM (16-bit signed)
+                    pcm_bytes = audioop.alaw2lin(alaw_bytes, 2)
                     # Convert bytes to samples
                     samples = list(struct.unpack(f'<{len(pcm_bytes)//2}h', pcm_bytes))
                 except Exception as e:
