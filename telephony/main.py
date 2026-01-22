@@ -15,8 +15,11 @@ This service bridges telephony audio to Gemini Live:
 from __future__ import annotations
 
 import asyncio
+import audioop
+import base64
 import json
 import os
+import struct
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
@@ -92,23 +95,23 @@ async def _gemini_reader(
                 chunk = session.output_buffer[: cfg.AUDIO_BUFFER_SAMPLES_OUTPUT]
                 session.output_buffer = session.output_buffer[cfg.AUDIO_BUFFER_SAMPLES_OUTPUT :]
 
+                # Convert PCM samples to μ-law and base64 for Elision
+                pcm_bytes = struct.pack(f'<{len(chunk)}h', *chunk)
+                mulaw_bytes = audioop.lin2ulaw(pcm_bytes, 2)
+                payload_b64 = base64.b64encode(mulaw_bytes).decode('ascii')
+
+                # Send in Elision format
                 payload = {
                     "event": "media",
-                    "type": "media",
-                    "ucid": session.ucid,
-                    "data": {
-                        "samples": chunk,
-                        "bitsPerSample": 16,
-                        "sampleRate": cfg.TELEPHONY_SR,
-                        "channelCount": 1,
-                        "numberOfFrames": len(chunk),
-                        "type": "data",
-                    },
+                    "stream_sid": session.ucid,
+                    "media": {
+                        "payload": payload_b64
+                    }
                 }
                 if session.client_ws.open:
                     await session.client_ws.send(json.dumps(payload))
                     if cfg.DEBUG:
-                        print(f"[{session.ucid}] 🔊 Sent {len(chunk)} samples to telephony")
+                        print(f"[{session.ucid}] 🔊 Sent {len(chunk)} samples to telephony (μ-law)")
     except Exception as e:
         if cfg.DEBUG:
             print(f"[{session.ucid}] ❌ Gemini reader error: {e}")
@@ -220,7 +223,6 @@ async def handle_client(client_ws):
             # Handle binary audio data directly (Elision may send raw PCM)
             if isinstance(raw, bytes):
                 # Assume 8kHz 16-bit PCM from Elision
-                import struct
                 samples = list(struct.unpack(f'<{len(raw)//2}h', raw))
                 session.input_buffer.extend(samples)
                 
@@ -247,14 +249,48 @@ async def handle_client(client_ws):
                     print(f"[{session.ucid}] 📞 stop event received")
                 break
 
-            if event == "media" and msg.get("data"):
+            # Handle Elision format: {"event":"media","media":{"payload":"BASE64"}}
+            if event == "media" and msg.get("media"):
+                payload_b64 = msg["media"].get("payload")
+                if not payload_b64:
+                    continue
+
+                # Decode base64 to bytes (μ-law encoded audio)
+                try:
+                    mulaw_bytes = base64.b64decode(payload_b64)
+                    # Convert μ-law to linear PCM (16-bit signed)
+                    pcm_bytes = audioop.ulaw2lin(mulaw_bytes, 2)
+                    # Convert bytes to samples
+                    samples = list(struct.unpack(f'<{len(pcm_bytes)//2}h', pcm_bytes))
+                except Exception as e:
+                    if cfg.DEBUG:
+                        print(f"[{session.ucid}] ⚠️ Audio decode error: {e}")
+                    continue
+
+                session.input_buffer.extend(samples)
+
+                # Track audio chunks sent to Gemini
+                chunks_sent = 0
+                while len(session.input_buffer) >= cfg.AUDIO_BUFFER_SAMPLES_INPUT:
+                    chunk = session.input_buffer[: cfg.AUDIO_BUFFER_SAMPLES_INPUT]
+                    session.input_buffer = session.input_buffer[cfg.AUDIO_BUFFER_SAMPLES_INPUT :]
+
+                    samples_np = audio_processor.waybeo_samples_to_np(chunk)
+                    audio_b64 = audio_processor.process_input_8k_to_gemini_16k_b64(samples_np)
+                    await session.gemini.send_audio_b64_pcm16(audio_b64)
+                    chunks_sent += 1
+
+                if cfg.DEBUG and chunks_sent > 0:
+                    print(f"[{session.ucid}] 🎤 Sent {chunks_sent} audio chunk(s) to Gemini ({len(samples)} samples)")
+
+            # Handle old Waybeo format: {"event":"media","data":{"samples":[...]}}
+            elif event == "media" and msg.get("data"):
                 samples = msg["data"].get("samples", [])
                 if not samples:
                     continue
 
                 session.input_buffer.extend(samples)
 
-                # Track audio chunks sent to Gemini
                 chunks_sent = 0
                 while len(session.input_buffer) >= cfg.AUDIO_BUFFER_SAMPLES_INPUT:
                     chunk = session.input_buffer[: cfg.AUDIO_BUFFER_SAMPLES_INPUT]
