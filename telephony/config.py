@@ -47,8 +47,9 @@ class Config:
     GEMINI_OUTPUT_SR: int = int(os.getenv("GEMINI_OUTPUT_SR", "24000"))  # Gemini audio output
 
     # Buffers (ms)
-    AUDIO_BUFFER_MS_INPUT: int = int(os.getenv("AUDIO_BUFFER_MS_INPUT", "200"))
-    AUDIO_BUFFER_MS_OUTPUT: int = int(os.getenv("AUDIO_BUFFER_MS_OUTPUT", "200"))
+    # Lower buffer sizes reduce perceived latency (tradeoff: more CPU/packet overhead).
+    AUDIO_BUFFER_MS_INPUT: int = int(os.getenv("AUDIO_BUFFER_MS_INPUT", "100"))
+    AUDIO_BUFFER_MS_OUTPUT: int = int(os.getenv("AUDIO_BUFFER_MS_OUTPUT", "100"))
 
     @property
     def AUDIO_BUFFER_SAMPLES_INPUT(self) -> int:

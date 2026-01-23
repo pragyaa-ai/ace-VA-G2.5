@@ -184,8 +184,9 @@ async def handle_client(client_ws):
         enable_affective_dialog=True,
         enable_input_transcription=False,
         enable_output_transcription=False,
-        vad_silence_ms=300,
-        vad_prefix_ms=400,
+        # Lower VAD timings to reduce response delay.
+        vad_silence_ms=150,
+        vad_prefix_ms=200,
         activity_handling="START_OF_ACTIVITY_INTERRUPTS",
     )
 
