@@ -126,10 +126,14 @@ async def _gemini_reader(
                         "payload": payload_b64
                     }
                 }
-                if session.client_ws.open:
+                try:
                     await session.client_ws.send(json.dumps(payload))
                     if cfg.DEBUG:
-                        print(f"[{session.ucid}] 🔊 Sent {len(chunk)} samples to telephony (μ-law)")
+                        print(f"[{session.ucid}] 🔊 Sent {len(chunk)} samples to telephony (A-law)")
+                except Exception as send_err:
+                    if cfg.DEBUG:
+                        print(f"[{session.ucid}] ❌ Telephony send failed: {send_err}")
+                    break
     except Exception as e:
         if cfg.DEBUG:
             print(f"[{session.ucid}] ❌ Gemini reader error: {e}")
