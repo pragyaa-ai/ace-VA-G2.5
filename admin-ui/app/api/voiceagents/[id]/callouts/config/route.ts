@@ -60,8 +60,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     const existingProfile = await prisma.voiceProfile.findUnique({
       where: { voiceAgentId: params.id },
     });
+    const existingSettings = (existingProfile?.settingsJson ?? {}) as Record<string, unknown>;
     const nextSettings = {
-      ...(existingProfile?.settingsJson ?? {}),
+      ...existingSettings,
       acengage: data.acengage,
     };
 
