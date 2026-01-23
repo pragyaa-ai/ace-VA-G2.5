@@ -72,8 +72,8 @@ async def _gemini_reader(
 ) -> None:
     try:
         async for msg in session.gemini.messages():
-            if cfg.DEBUG:
-                if msg.get("setupComplete"):
+            if cfg.DEBUG or cfg.LOG_TRANSCRIPTS:
+                if msg.get("setupComplete") and cfg.DEBUG:
                     print(f"[{session.ucid}] 🏁 Gemini setupComplete")
                 elif msg.get("serverContent"):
                     # Log what type of content we're getting
@@ -82,14 +82,16 @@ async def _gemini_reader(
                     parts = model_turn.get("parts", [])
                     has_audio = any(p.get("inlineData") for p in parts if isinstance(p, dict))
                     has_text = any(p.get("text") for p in parts if isinstance(p, dict))
-                    if has_audio:
+                    if has_audio and cfg.DEBUG:
                         print(f"[{session.ucid}] 🎵 Gemini sent audio response")
-                    if has_text:
-                        text_parts = [p.get("text") for p in parts if isinstance(p, dict) and p.get("text")]
+                    if has_text and cfg.LOG_TRANSCRIPTS:
+                        text_parts = [
+                            p.get("text") for p in parts if isinstance(p, dict) and p.get("text")
+                        ]
                         print(f"[{session.ucid}] 💬 Gemini text: {text_parts}")
-                    if sc.get("turnComplete"):
+                    if sc.get("turnComplete") and cfg.DEBUG:
                         print(f"[{session.ucid}] ✅ Gemini turn complete")
-                else:
+                elif cfg.DEBUG:
                     # Log unknown message types
                     keys = list(msg.keys())
                     print(f"[{session.ucid}] 📩 Gemini msg keys: {keys}")
@@ -183,7 +185,7 @@ async def handle_client(client_ws):
         system_instructions=prompt,
         enable_affective_dialog=True,
         enable_input_transcription=False,
-        enable_output_transcription=False,
+        enable_output_transcription=True,
         # Lower VAD timings to reduce response delay.
         vad_silence_ms=150,
         vad_prefix_ms=200,
@@ -231,7 +233,7 @@ async def handle_client(client_ws):
         # Process remaining messages
         async for raw in client_ws:
             # Debug: log raw message type
-            if cfg.DEBUG:
+            if cfg.DEBUG and cfg.LOG_MEDIA:
                 if isinstance(raw, bytes):
                     print(f"[{session.ucid}] 📨 Received binary data: {len(raw)} bytes")
                 else:

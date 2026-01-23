@@ -32,6 +32,8 @@ class Config:
     WS_PATH: str = os.getenv("WS_PATH", "/ws")
 
     DEBUG: bool = _env_bool("DEBUG", False)
+    LOG_MEDIA: bool = _env_bool("LOG_MEDIA", False)
+    LOG_TRANSCRIPTS: bool = _env_bool("LOG_TRANSCRIPTS", True)
 
     # GCP / Gemini
     GCP_PROJECT_ID: str = os.getenv("GCP_PROJECT_ID", "")
@@ -94,6 +96,8 @@ class Config:
             f"({self.AUDIO_BUFFER_SAMPLES_OUTPUT} samples)"
         )
         print(f"🐞 DEBUG: {self.DEBUG}")
+        print(f"🧾 LOG_MEDIA: {self.LOG_MEDIA}")
+        print(f"📝 LOG_TRANSCRIPTS: {self.LOG_TRANSCRIPTS}")
         print("=" * 68)
 
 
