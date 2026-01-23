@@ -46,10 +46,10 @@ export default function CallFlowPage() {
     setSteps([...steps, { order: steps.length, title: "", content: "", enabled: true }]);
   };
 
-  const updateStep = (idx: number, field: keyof Step, value: string | boolean) => {
-    const updated = [...steps];
-    (updated[idx] as Record<string, unknown>)[field] = value;
-    setSteps(updated);
+  const updateStep = <K extends keyof Step>(idx: number, field: K, value: Step[K]) => {
+    setSteps((prev) =>
+      prev.map((step, i) => (i === idx ? { ...step, [field]: value } : step))
+    );
   };
 
   const removeStep = (idx: number) => {
