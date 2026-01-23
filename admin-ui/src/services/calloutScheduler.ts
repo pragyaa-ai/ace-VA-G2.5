@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { DEFAULT_ACENGAGE_CONFIG } from "@/lib/callouts";
 import { fetchNcEmployees } from "@/services/acengage";
 import { triggerElisionCallout } from "@/services/elision";
+import { Prisma } from "@prisma/client";
 
 type SchedulerHandle = {
   intervalId: ReturnType<typeof setInterval>;
@@ -142,20 +143,21 @@ const runSchedule = async (scheduleId: string): Promise<void> => {
       where: { voiceAgentId: schedule.voiceAgentId, employeeExternalId: employeeId },
     });
 
+    const employeeJson = employee as Prisma.InputJsonValue;
     const job =
       existingJob ??
       (await prisma.calloutJob.create({
         data: {
           voiceAgentId: schedule.voiceAgentId,
           employeeExternalId: employeeId,
-          employeeJson: employee,
+          employeeJson,
         },
       }));
 
     if (existingJob) {
       await prisma.calloutJob.update({
         where: { id: existingJob.id },
-        data: { employeeJson: employee },
+        data: { employeeJson },
       });
     }
 
@@ -194,13 +196,14 @@ const runSchedule = async (scheduleId: string): Promise<void> => {
         addToHopper,
         comments,
       });
+      const responseJson = response as Prisma.InputJsonValue;
 
       await prisma.calloutAttempt.update({
         where: { id: attempt.id },
         data: {
           status: "TRIGGERED",
           requestedAt: new Date(),
-          responseJson: response,
+          responseJson,
         },
       });
     } catch (error) {

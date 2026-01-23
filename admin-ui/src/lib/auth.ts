@@ -9,20 +9,20 @@ function mustGetEnv(name: string): string {
   return v;
 }
 
-export const authOptions: NextAuthOptions = {
+export const getAuthOptions = (): NextAuthOptions => ({
   adapter: PrismaAdapter(prisma),
   // NOTE: NextAuth middleware runs on the Edge runtime and can’t validate DB sessions.
   // Use JWT sessions so middleware can authenticate requests and avoid redirect loops.
   session: { strategy: "jwt" },
   pages: {
-    signIn: "/login"
+    signIn: "/login",
   },
   providers: [
     GoogleProvider({
       clientId: mustGetEnv("GOOGLE_CLIENT_ID"),
-      clientSecret: mustGetEnv("GOOGLE_CLIENT_SECRET")
-    })
-  ]
-};
+      clientSecret: mustGetEnv("GOOGLE_CLIENT_SECRET"),
+    }),
+  ],
+});
 
 

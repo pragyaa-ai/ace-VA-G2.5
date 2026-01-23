@@ -1,9 +1,10 @@
 import NextAuth from "next-auth";
-import { authOptions } from "@/src/lib/auth";
+import { getAuthOptions } from "@/src/lib/auth";
 
-const handler = NextAuth(authOptions);
+const buildHandler = () => NextAuth(getAuthOptions());
 
-export { handler as GET, handler as POST };
+export const GET = async (req: Request, ctx: unknown) => buildHandler()(req, ctx as never);
+export const POST = async (req: Request, ctx: unknown) => buildHandler()(req, ctx as never);
 
 
 
