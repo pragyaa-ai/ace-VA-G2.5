@@ -1,14 +1,16 @@
 export function Card({
   title,
   description,
-  children
+  children,
+  className = ""
 }: {
   title?: string;
   description?: string;
   children: React.ReactNode;
+  className?: string;
 }) {
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <section className={`rounded-2xl border border-slate-200 bg-white p-5 shadow-sm ${className}`}
       {(title || description) && (
         <header className="mb-4">
           {title && <h2 className="text-sm font-semibold text-slate-900">{title}</h2>}
