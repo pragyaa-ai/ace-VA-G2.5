@@ -39,6 +39,7 @@ class TelephonySession:
     input_buffer: list[int]
     output_buffer: list[int]
     closed: bool = False
+    end_after_turn: bool = False
 
 
 def _read_prompt_text() -> str:
@@ -67,6 +68,37 @@ def _is_interrupted(msg: Dict[str, Any]) -> bool:
     return bool(msg.get("serverContent", {}).get("interrupted"))
 
 
+def _extract_transcripts(msg: Dict[str, Any]) -> list[str]:
+    transcripts: list[str] = []
+    sc = msg.get("serverContent", {})
+    model_turn = sc.get("modelTurn", {})
+    parts = model_turn.get("parts", [])
+    for part in parts:
+        if isinstance(part, dict) and part.get("text"):
+            transcripts.append(str(part.get("text")))
+
+    for key in ("outputAudioTranscription", "inputAudioTranscription"):
+        blob = sc.get(key) or msg.get(key)
+        if isinstance(blob, dict):
+            value = blob.get("transcript") or blob.get("text")
+            if value:
+                transcripts.append(str(value))
+        elif isinstance(blob, list):
+            for item in blob:
+                if isinstance(item, dict):
+                    value = item.get("transcript") or item.get("text")
+                    if value:
+                        transcripts.append(str(value))
+    return transcripts
+
+
+def _should_end_call(texts: list[str], phrases: list[str]) -> bool:
+    if not texts:
+        return False
+    combined = " ".join(texts).lower()
+    return any(phrase for phrase in phrases if phrase and phrase in combined)
+
+
 async def _gemini_reader(
     session: TelephonySession, audio_processor: AudioProcessor, cfg: Config
 ) -> None:
@@ -82,13 +114,16 @@ async def _gemini_reader(
                     parts = model_turn.get("parts", [])
                     has_audio = any(p.get("inlineData") for p in parts if isinstance(p, dict))
                     has_text = any(p.get("text") for p in parts if isinstance(p, dict))
-                    if has_audio and cfg.DEBUG:
+                    if has_audio and cfg.DEBUG and cfg.LOG_MEDIA:
                         print(f"[{session.ucid}] 🎵 Gemini sent audio response")
-                    if has_text and cfg.LOG_TRANSCRIPTS:
-                        text_parts = [
-                            p.get("text") for p in parts if isinstance(p, dict) and p.get("text")
-                        ]
-                        print(f"[{session.ucid}] 💬 Gemini text: {text_parts}")
+                    if cfg.LOG_TRANSCRIPTS:
+                        text_parts = _extract_transcripts(msg)
+                        if text_parts:
+                            print(f"[{session.ucid}] 💬 Gemini text: {text_parts}")
+                            if cfg.AUTO_END_CALL:
+                                phrases = [p.strip().lower() for p in cfg.END_CALL_PHRASES.split(",")]
+                                if _should_end_call(text_parts, phrases):
+                                    session.end_after_turn = True
                     if sc.get("turnComplete") and cfg.DEBUG:
                         print(f"[{session.ucid}] ✅ Gemini turn complete")
                 elif cfg.DEBUG:
@@ -130,12 +165,20 @@ async def _gemini_reader(
                 }
                 try:
                     await session.client_ws.send(json.dumps(payload))
-                    if cfg.DEBUG:
+                    if cfg.DEBUG and cfg.LOG_MEDIA:
                         print(f"[{session.ucid}] 🔊 Sent {len(chunk)} samples to telephony (A-law)")
                 except Exception as send_err:
                     if cfg.DEBUG:
                         print(f"[{session.ucid}] ❌ Telephony send failed: {send_err}")
                     break
+
+            if session.end_after_turn and not session.output_buffer:
+                try:
+                    await session.client_ws.close(code=1000, reason="Call completed")
+                except Exception:
+                    pass
+                session.closed = True
+                break
     except Exception as e:
         if cfg.DEBUG:
             print(f"[{session.ucid}] ❌ Gemini reader error: {e}")
@@ -305,7 +348,7 @@ async def handle_client(client_ws):
                     await session.gemini.send_audio_b64_pcm16(audio_b64)
                     chunks_sent += 1
 
-                if cfg.DEBUG and chunks_sent > 0:
+                if cfg.DEBUG and cfg.LOG_MEDIA and chunks_sent > 0:
                     print(f"[{session.ucid}] 🎤 Sent {chunks_sent} audio chunk(s) to Gemini ({len(samples)} samples)")
 
             # Handle old Waybeo format: {"event":"media","data":{"samples":[...]}}
@@ -326,7 +369,7 @@ async def handle_client(client_ws):
                     await session.gemini.send_audio_b64_pcm16(audio_b64)
                     chunks_sent += 1
 
-                if cfg.DEBUG and chunks_sent > 0:
+                if cfg.DEBUG and cfg.LOG_MEDIA and chunks_sent > 0:
                     print(f"[{session.ucid}] 🎤 Sent {chunks_sent} audio chunk(s) to Gemini ({len(samples)} samples received)")
 
         gemini_task.cancel()
