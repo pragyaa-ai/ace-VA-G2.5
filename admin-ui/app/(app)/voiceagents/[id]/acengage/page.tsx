@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Card } from "@/components/ui/Card";
-import { Textarea } from "@/components/ui/Textarea";
 import {
   DEFAULT_ACENGAGE_CONFIG,
   DEFAULT_CALLOUT_SCHEDULE,
@@ -18,11 +17,52 @@ type CalloutConfigResponse = {
   acengage: AcengageConfig & { statusTree?: unknown };
 };
 
-type Employee = {
-  id: string;
-  phone_number?: string;
-  name?: string;
-  [key: string]: unknown;
+type Employee = Record<string, unknown>;
+
+type PullResult = {
+  employees: Employee[];
+  statusTree?: unknown;
+  count: number;
+  savedCount: number;
+  newCount: number;
+  updatedCount: number;
+  pulledAt: string;
+  triggerResult?: {
+    triggered: number;
+    failed: number;
+    skipped: number;
+  };
+};
+
+// Get display-friendly field names
+const FIELD_DISPLAY_NAMES: Record<string, string> = {
+  id: "ID",
+  employee_id: "Employee ID",
+  name: "Name",
+  employee_name: "Employee Name",
+  full_name: "Full Name",
+  phone: "Phone",
+  phone_number: "Phone Number",
+  mobile: "Mobile",
+  company: "Company",
+  company_name: "Company Name",
+  organization: "Organization",
+  email: "Email",
+  department: "Department",
+  designation: "Designation",
+  status: "Status",
+  created_at: "Created At",
+  updated_at: "Updated At",
+};
+
+const getFieldDisplayName = (field: string): string => {
+  return (
+    FIELD_DISPLAY_NAMES[field] ||
+    field
+      .replace(/_/g, " ")
+      .replace(/([a-z])([A-Z])/g, "$1 $2")
+      .replace(/\b\w/g, (l) => l.toUpperCase())
+  );
 };
 
 export default function AcengageCalloutsPage() {
@@ -31,13 +71,40 @@ export default function AcengageCalloutsPage() {
   const [saving, setSaving] = useState(false);
   const [pulling, setPulling] = useState(false);
   const [triggering, setTriggering] = useState(false);
+  const [triggeringCallouts, setTriggeringCallouts] = useState(false);
   const [schedule, setSchedule] = useState<CalloutScheduleConfig>(DEFAULT_CALLOUT_SCHEDULE);
   const [config, setConfig] = useState<AcengageConfig>(DEFAULT_ACENGAGE_CONFIG);
   const [statusTree, setStatusTree] = useState<unknown | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [pullResult, setPullResult] = useState<string>("");
+  const [pullResult, setPullResult] = useState<PullResult | null>(null);
+  const [pullError, setPullError] = useState<string>("");
   const [testPhoneNumber, setTestPhoneNumber] = useState("");
   const [testResult, setTestResult] = useState<string>("");
+  const [autoTriggerCallouts, setAutoTriggerCallouts] = useState(false);
+
+  // Detect available fields from employee data
+  const availableFields = useMemo(() => {
+    if (employees.length === 0) return [];
+    const fieldSet = new Set<string>();
+    employees.forEach((emp) => {
+      Object.keys(emp).forEach((key) => {
+        if (emp[key] !== null && emp[key] !== undefined && emp[key] !== "") {
+          fieldSet.add(key);
+        }
+      });
+    });
+    // Prioritize important fields
+    const priority = ["id", "name", "employee_name", "phone_number", "phone", "mobile", "company", "company_name", "email", "department"];
+    const sorted = Array.from(fieldSet).sort((a, b) => {
+      const aIdx = priority.indexOf(a);
+      const bIdx = priority.indexOf(b);
+      if (aIdx >= 0 && bIdx >= 0) return aIdx - bIdx;
+      if (aIdx >= 0) return -1;
+      if (bIdx >= 0) return 1;
+      return a.localeCompare(b);
+    });
+    return sorted.slice(0, 8); // Show max 8 columns
+  }, [employees]);
 
   useEffect(() => {
     fetch(`/api/voiceagents/${params.id}/callouts/config`)
@@ -66,26 +133,49 @@ export default function AcengageCalloutsPage() {
 
   const handlePullData = async () => {
     setPulling(true);
-    setPullResult("");
+    setPullResult(null);
+    setPullError("");
     setEmployees([]);
     try {
-      const res = await fetch(`/api/voiceagents/${params.id}/callouts/pull`, {
+      const triggerParam = autoTriggerCallouts ? "?autoTrigger=true" : "";
+      const res = await fetch(`/api/voiceagents/${params.id}/callouts/pull${triggerParam}`, {
         method: "POST",
       });
       const data = await res.json();
       if (res.ok) {
         setEmployees(data.employees || []);
-        setPullResult(`Pulled ${data.employees?.length || 0} employees successfully.`);
+        setPullResult(data as PullResult);
         if (data.statusTree) {
           setStatusTree(data.statusTree);
         }
       } else {
-        setPullResult(`Error: ${data.error || "Failed to pull data"}`);
+        setPullError(data.error || "Failed to pull data");
       }
     } catch (err) {
-      setPullResult(`Error: ${err instanceof Error ? err.message : "Unknown error"}`);
+      setPullError(err instanceof Error ? err.message : "Unknown error");
     }
     setPulling(false);
+  };
+
+  const handleTriggerCallouts = async () => {
+    if (!pullResult?.savedCount) return;
+    setTriggeringCallouts(true);
+    try {
+      const res = await fetch(`/api/voiceagents/${params.id}/callouts/trigger`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(`Callouts triggered: ${data.triggered} calls queued, ${data.failed} failed, ${data.skipped} skipped`);
+      } else {
+        alert(`Error: ${data.error || "Failed to trigger callouts"}`);
+      }
+    } catch (err) {
+      alert(`Error: ${err instanceof Error ? err.message : "Unknown error"}`);
+    }
+    setTriggeringCallouts(false);
   };
 
   const handleTriggerTestCall = async () => {
@@ -111,6 +201,13 @@ export default function AcengageCalloutsPage() {
       setTestResult(`Error: ${err instanceof Error ? err.message : "Unknown error"}`);
     }
     setTriggering(false);
+  };
+
+  const getFieldValue = (emp: Employee, field: string): string => {
+    const value = emp[field];
+    if (value === null || value === undefined) return "—";
+    if (typeof value === "object") return JSON.stringify(value);
+    return String(value);
   };
 
   if (loading) {
@@ -161,66 +258,134 @@ export default function AcengageCalloutsPage() {
 
       {/* Pull Data Section */}
       <Card className="p-6 space-y-5 bg-gradient-to-br from-sky-50 to-white border-sky-100">
-        <div className="border-b border-sky-100 pb-4 flex items-center justify-between">
+        <div className="border-b border-sky-100 pb-4 flex flex-wrap items-center justify-between gap-4">
           <div>
             <h3 className="text-base font-semibold text-slate-900">Pull Employee Data</h3>
             <p className="text-sm text-slate-500">
-              Fetch NC employees from Acengage API now.
+              Fetch NC employees from Acengage API and save to database.
             </p>
           </div>
-          <Button
-            onClick={handlePullData}
-            disabled={pulling}
-            className="bg-sky-600 hover:bg-sky-700"
-          >
-            {pulling ? "Pulling..." : "Pull Data Now"}
-          </Button>
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={autoTriggerCallouts}
+                onChange={(e) => setAutoTriggerCallouts(e.target.checked)}
+                className="rounded"
+              />
+              Auto-trigger callouts
+            </label>
+            <Button
+              onClick={handlePullData}
+              disabled={pulling}
+              className="bg-sky-600 hover:bg-sky-700"
+            >
+              {pulling ? "Pulling..." : "Pull Data Now"}
+            </Button>
+          </div>
         </div>
 
+        {pullError && (
+          <p className="text-sm text-red-600">Error: {pullError}</p>
+        )}
+
         {pullResult && (
-          <p className={`text-sm ${pullResult.startsWith("Error") ? "text-red-600" : "text-emerald-600"}`}>
-            {pullResult}
-          </p>
+          <div className="flex flex-wrap gap-4 text-sm">
+            <span className="px-3 py-1 bg-sky-100 text-sky-700 rounded-full">
+              {pullResult.count} fetched
+            </span>
+            <span className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full">
+              {pullResult.newCount} new
+            </span>
+            <span className="px-3 py-1 bg-amber-100 text-amber-700 rounded-full">
+              {pullResult.updatedCount} updated
+            </span>
+            {pullResult.triggerResult && (
+              <>
+                <span className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full">
+                  {pullResult.triggerResult.triggered} calls triggered
+                </span>
+                {pullResult.triggerResult.failed > 0 && (
+                  <span className="px-3 py-1 bg-red-100 text-red-700 rounded-full">
+                    {pullResult.triggerResult.failed} failed
+                  </span>
+                )}
+              </>
+            )}
+          </div>
         )}
 
         {employees.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">ID</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">Name</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">Phone</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {employees.slice(0, 10).map((emp, idx) => (
-                  <tr key={idx}>
-                    <td className="px-3 py-2 text-slate-700">{String(emp.id || emp[config.employeeIdField] || "-")}</td>
-                    <td className="px-3 py-2 text-slate-700">{String(emp.name || emp.employee_name || "-")}</td>
-                    <td className="px-3 py-2 text-slate-700">{String(emp.phone_number || emp[config.phoneField] || "-")}</td>
-                    <td className="px-3 py-2">
-                      <button
-                        className="text-xs text-emerald-600 hover:underline"
-                        onClick={() => {
-                          const phone = String(emp.phone_number || emp[config.phoneField] || "");
-                          if (phone) {
-                            setTestPhoneNumber(phone);
-                          }
-                        }}
+          <>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    {availableFields.map((field) => (
+                      <th
+                        key={field}
+                        className="px-3 py-2 text-left text-xs font-medium text-slate-500 whitespace-nowrap"
                       >
-                        Use for Test
-                      </button>
-                    </td>
+                        {getFieldDisplayName(field)}
+                      </th>
+                    ))}
+                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">
+                      Action
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-            {employees.length > 10 && (
-              <p className="text-xs text-slate-400 mt-2">Showing first 10 of {employees.length} employees.</p>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {employees.slice(0, 15).map((emp, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50">
+                      {availableFields.map((field) => (
+                        <td
+                          key={field}
+                          className="px-3 py-2 text-slate-700 max-w-[200px] truncate"
+                          title={getFieldValue(emp, field)}
+                        >
+                          {getFieldValue(emp, field)}
+                        </td>
+                      ))}
+                      <td className="px-3 py-2">
+                        <button
+                          className="text-xs text-emerald-600 hover:underline whitespace-nowrap"
+                          onClick={() => {
+                            const phone =
+                              getFieldValue(emp, config.phoneField) ||
+                              getFieldValue(emp, "phone_number") ||
+                              getFieldValue(emp, "phone") ||
+                              getFieldValue(emp, "mobile");
+                            if (phone && phone !== "—") {
+                              setTestPhoneNumber(phone);
+                            }
+                          }}
+                        >
+                          Use for Test
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {employees.length > 15 && (
+              <p className="text-xs text-slate-400">
+                Showing first 15 of {employees.length} employees.
+              </p>
             )}
-          </div>
+
+            {pullResult && !pullResult.triggerResult && pullResult.savedCount > 0 && (
+              <div className="flex justify-end pt-2">
+                <Button
+                  onClick={handleTriggerCallouts}
+                  disabled={triggeringCallouts}
+                  className="bg-indigo-600 hover:bg-indigo-700"
+                >
+                  {triggeringCallouts ? "Triggering..." : `Trigger Callouts for ${pullResult.savedCount} Employees`}
+                </Button>
+              </div>
+            )}
+          </>
         )}
       </Card>
 
@@ -229,7 +394,7 @@ export default function AcengageCalloutsPage() {
         <div className="border-b border-slate-100 pb-4">
           <h3 className="text-base font-semibold text-slate-900">Schedule</h3>
           <p className="text-sm text-slate-500">
-            Default schedule is 11:00 IST. Update as needed for callout runs.
+            Configure when the system automatically pulls data and triggers callouts.
           </p>
         </div>
 
@@ -240,9 +405,10 @@ export default function AcengageCalloutsPage() {
               type="checkbox"
               checked={schedule.isActive}
               onChange={(e) => setSchedule({ ...schedule, isActive: e.target.checked })}
+              className="rounded"
             />
             <label htmlFor="scheduleActive" className="text-sm text-slate-700">
-              Enable daily callouts
+              Enable automatic daily callouts
             </label>
           </div>
 
@@ -305,6 +471,7 @@ export default function AcengageCalloutsPage() {
               onChange={(e) =>
                 setSchedule({ ...schedule, escalationEnabled: e.target.checked })
               }
+              className="rounded"
             />
             <label htmlFor="escalationEnabled" className="text-sm text-slate-700">
               Escalate after max attempts
@@ -316,9 +483,9 @@ export default function AcengageCalloutsPage() {
       {/* Acengage API Section */}
       <Card className="p-6 space-y-5">
         <div className="border-b border-slate-100 pb-4">
-          <h3 className="text-base font-semibold text-slate-900">Acengage API</h3>
+          <h3 className="text-base font-semibold text-slate-900">Acengage API & Field Mapping</h3>
           <p className="text-sm text-slate-500">
-            Endpoints and field mapping for NC employee fetch and status update.
+            Configure API endpoints and map fields from the Acengage response.
           </p>
         </div>
 
@@ -365,6 +532,28 @@ export default function AcengageCalloutsPage() {
               placeholder="phone_number"
             />
           </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              Name Field
+            </label>
+            <Input
+              value={config.nameField}
+              onChange={(e) => setConfig({ ...config, nameField: e.target.value })}
+              placeholder="name"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              Company Field
+            </label>
+            <Input
+              value={config.companyField}
+              onChange={(e) => setConfig({ ...config, companyField: e.target.value })}
+              placeholder="company"
+            />
+          </div>
         </div>
       </Card>
 
@@ -376,7 +565,7 @@ export default function AcengageCalloutsPage() {
             Latest status tree fetched from Acengage (read-only).
           </p>
         </div>
-        <pre className="text-xs text-slate-600 whitespace-pre-wrap max-h-64 overflow-y-auto">
+        <pre className="text-xs text-slate-600 whitespace-pre-wrap max-h-64 overflow-y-auto bg-slate-50 p-3 rounded-lg">
           {statusTree ? JSON.stringify(statusTree, null, 2) : "No status tree fetched yet."}
         </pre>
       </Card>

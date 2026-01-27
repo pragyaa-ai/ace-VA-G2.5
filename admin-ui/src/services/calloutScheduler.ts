@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { DEFAULT_ACENGAGE_CONFIG } from "@/lib/callouts";
+import { DEFAULT_ACENGAGE_CONFIG, safeExtractField } from "@/lib/callouts";
 import { fetchNcEmployees } from "@/services/acengage";
 import { triggerElisionCallout } from "@/services/elision";
 import { Prisma } from "@prisma/client";
@@ -54,41 +54,49 @@ const safeString = (value: unknown): string | null => {
   return null;
 };
 
-const resolveEmployeeId = (employee: Record<string, unknown>, field: string): string | null => {
-  return (
-    safeString(employee[field]) ??
-    safeString(employee.id) ??
-    safeString(employee.employee_id) ??
-    safeString(employee.employeeId) ??
-    safeString(employee.record_id)
-  );
+type TriggerResult = {
+  triggered: number;
+  failed: number;
+  skipped: number;
+  attemptIds: string[];
 };
 
-const resolvePhoneNumber = (employee: Record<string, unknown>, field: string): string | null => {
-  return (
-    safeString(employee[field]) ??
-    safeString(employee.phone_number) ??
-    safeString(employee.phone) ??
-    safeString(employee.mobile)
-  );
-};
+/**
+ * Trigger callouts for all pending jobs for a given voice agent.
+ * This can be called after data pull or by the scheduler.
+ */
+export const triggerCalloutsForVoiceAgent = async (
+  voiceAgentId: string,
+  options?: { jobIds?: string[] }
+): Promise<TriggerResult> => {
+  const result: TriggerResult = {
+    triggered: 0,
+    failed: 0,
+    skipped: 0,
+    attemptIds: [],
+  };
 
-const runSchedule = async (scheduleId: string): Promise<void> => {
-  const schedule = await prisma.calloutSchedule.findUnique({
-    where: { id: scheduleId },
+  // Get voice agent with config
+  const voiceAgent = await prisma.voiceAgent.findUnique({
+    where: { id: voiceAgentId },
     include: {
-      voiceAgent: { include: { voiceProfile: true } },
+      voiceProfile: true,
+      calloutSchedule: true,
     },
   });
 
-  if (!schedule || !schedule.isActive) return;
+  if (!voiceAgent) {
+    console.error("[callouts] VoiceAgent not found:", voiceAgentId);
+    return result;
+  }
 
-  const voiceProfile = schedule.voiceAgent.voiceProfile;
-  const settingsJson = (voiceProfile?.settingsJson ?? {}) as Record<string, unknown>;
-  const acengageConfig = {
-    ...DEFAULT_ACENGAGE_CONFIG,
-    ...(settingsJson.acengage as Record<string, unknown> | undefined),
-  } as typeof DEFAULT_ACENGAGE_CONFIG;
+  const schedule = voiceAgent.calloutSchedule;
+  if (!schedule || !schedule.isActive) {
+    console.log("[callouts] Schedule not active for:", voiceAgentId);
+    return result;
+  }
+
+  const settingsJson = (voiceAgent.voiceProfile?.settingsJson ?? {}) as Record<string, unknown>;
   const telephonyConfig = (settingsJson.telephony ?? {}) as Record<string, unknown>;
 
   const addLeadUrl = safeString(telephonyConfig.addLeadUrl);
@@ -99,68 +107,37 @@ const runSchedule = async (scheduleId: string): Promise<void> => {
   const comments = safeString(telephonyConfig.commentsTemplate);
 
   if (!addLeadUrl || !accessToken || !listId || !comments) {
-    console.error("[callouts] Missing Elision telephony config", {
-      voiceAgentId: schedule.voiceAgentId,
-    });
-    return;
-  }
-
-  let employees: Record<string, unknown>[] = [];
-  let statusTree: unknown | null = null;
-
-  try {
-    const result = await fetchNcEmployees(acengageConfig.getUrl);
-    employees = result.employees;
-    statusTree = result.statusTree;
-  } catch (error) {
-    console.error("[callouts] Acengage fetch failed", error);
-    return;
-  }
-
-  if (statusTree !== null && voiceProfile) {
-    await prisma.voiceProfile.update({
-      where: { voiceAgentId: schedule.voiceAgentId },
-      data: {
-        settingsJson: {
-          ...(settingsJson ?? {}),
-          acengage: { ...acengageConfig, statusTree },
-        },
-      },
-    });
+    console.error("[callouts] Missing Elision telephony config", { voiceAgentId });
+    return result;
   }
 
   const todayLocal = getLocalDateString(new Date(), schedule.timezone);
   const maxAttempts = schedule.attemptsPerDay * schedule.maxDays;
 
-  for (const employee of employees) {
-    const employeeId = resolveEmployeeId(employee, acengageConfig.employeeIdField);
-    if (!employeeId) continue;
+  // Get jobs to process
+  const whereClause: Prisma.CalloutJobWhereInput = {
+    voiceAgentId,
+    status: { in: ["PENDING", "IN_PROGRESS"] },
+  };
 
-    const phoneNumber = resolvePhoneNumber(employee, acengageConfig.phoneField);
-    if (!phoneNumber) continue;
+  if (options?.jobIds && options.jobIds.length > 0) {
+    whereClause.id = { in: options.jobIds };
+  }
 
-    const existingJob = await prisma.calloutJob.findFirst({
-      where: { voiceAgentId: schedule.voiceAgentId, employeeExternalId: employeeId },
-    });
+  const jobs = await prisma.calloutJob.findMany({
+    where: whereClause,
+    include: { attempts: true },
+  });
 
-    const employeeJson = employee as Prisma.InputJsonValue;
-    const job =
-      existingJob ??
-      (await prisma.calloutJob.create({
-        data: {
-          voiceAgentId: schedule.voiceAgentId,
-          employeeExternalId: employeeId,
-          employeeJson,
-        },
-      }));
-
-    if (existingJob) {
-      await prisma.calloutJob.update({
-        where: { id: existingJob.id },
-        data: { employeeJson },
-      });
+  for (const job of jobs) {
+    // Skip if no phone number
+    const phoneNumber = job.employeePhone;
+    if (!phoneNumber) {
+      result.skipped++;
+      continue;
     }
 
+    // Skip if max attempts reached
     if (job.totalAttempts >= maxAttempts) {
       if (schedule.escalationEnabled && job.status !== "ESCALATED") {
         await prisma.calloutJob.update({
@@ -168,15 +145,22 @@ const runSchedule = async (scheduleId: string): Promise<void> => {
           data: { status: "ESCALATED" },
         });
       }
+      result.skipped++;
       continue;
     }
 
+    // Skip if already attempted today (up to attemptsPerDay)
     const attemptsToday = await prisma.calloutAttempt.count({
       where: { calloutJobId: job.id, localDate: todayLocal },
     });
-    if (attemptsToday >= schedule.attemptsPerDay) continue;
+    if (attemptsToday >= schedule.attemptsPerDay) {
+      result.skipped++;
+      continue;
+    }
 
     const attemptNumber = job.totalAttempts + 1;
+
+    // Create attempt record
     const attempt = await prisma.calloutAttempt.create({
       data: {
         calloutJobId: job.id,
@@ -206,6 +190,9 @@ const runSchedule = async (scheduleId: string): Promise<void> => {
           responseJson,
         },
       });
+
+      result.triggered++;
+      result.attemptIds.push(attempt.id);
     } catch (error) {
       await prisma.calloutAttempt.update({
         where: { id: attempt.id },
@@ -215,8 +202,10 @@ const runSchedule = async (scheduleId: string): Promise<void> => {
           errorMessage: error instanceof Error ? error.message : "Elision error",
         },
       });
+      result.failed++;
     }
 
+    // Update job status
     const nextStatus =
       schedule.escalationEnabled && attemptNumber >= maxAttempts
         ? "ESCALATED"
@@ -233,6 +222,129 @@ const runSchedule = async (scheduleId: string): Promise<void> => {
       },
     });
   }
+
+  return result;
+};
+
+/**
+ * Full schedule run: fetch employees from Acengage, save to DB, then trigger callouts.
+ */
+const runSchedule = async (scheduleId: string): Promise<void> => {
+  const schedule = await prisma.calloutSchedule.findUnique({
+    where: { id: scheduleId },
+    include: {
+      voiceAgent: { include: { voiceProfile: true } },
+    },
+  });
+
+  if (!schedule || !schedule.isActive) return;
+
+  const voiceProfile = schedule.voiceAgent.voiceProfile;
+  const settingsJson = (voiceProfile?.settingsJson ?? {}) as Record<string, unknown>;
+  const acengageConfig = {
+    ...DEFAULT_ACENGAGE_CONFIG,
+    ...(settingsJson.acengage as Record<string, unknown> | undefined),
+  } as typeof DEFAULT_ACENGAGE_CONFIG;
+
+  // Step 1: Fetch employees from Acengage
+  let employees: Record<string, unknown>[] = [];
+  let statusTree: unknown | null = null;
+
+  try {
+    const result = await fetchNcEmployees(acengageConfig.getUrl);
+    employees = result.employees;
+    statusTree = result.statusTree;
+    console.log(`[callouts] Fetched ${employees.length} employees from Acengage`);
+  } catch (error) {
+    console.error("[callouts] Acengage fetch failed", error);
+    return;
+  }
+
+  // Update status tree in settings
+  if (statusTree !== null && voiceProfile) {
+    await prisma.voiceProfile.update({
+      where: { voiceAgentId: schedule.voiceAgentId },
+      data: {
+        settingsJson: {
+          ...(settingsJson ?? {}),
+          acengage: { ...acengageConfig, statusTree },
+        },
+      },
+    });
+  }
+
+  const pulledAt = new Date();
+  const jobIds: string[] = [];
+
+  // Step 2: Save/update CalloutJob records
+  for (const employee of employees) {
+    const employeeExternalId = safeExtractField(
+      employee,
+      acengageConfig.employeeIdField,
+      ["id", "employee_id", "employeeId", "record_id"]
+    );
+    if (!employeeExternalId) continue;
+
+    const employeePhone = safeExtractField(
+      employee,
+      acengageConfig.phoneField,
+      ["phone_number", "phone", "mobile", "contact_number"]
+    );
+    if (!employeePhone) continue;
+
+    const employeeName = safeExtractField(
+      employee,
+      acengageConfig.nameField,
+      ["name", "employee_name", "full_name", "employeeName"]
+    );
+
+    const employeeCompany = safeExtractField(
+      employee,
+      acengageConfig.companyField,
+      ["company", "company_name", "organization", "companyName"]
+    );
+
+    const employeeJson = employee as Prisma.InputJsonValue;
+
+    const existingJob = await prisma.calloutJob.findFirst({
+      where: { voiceAgentId: schedule.voiceAgentId, employeeExternalId },
+    });
+
+    if (existingJob) {
+      await prisma.calloutJob.update({
+        where: { id: existingJob.id },
+        data: {
+          employeeName,
+          employeePhone,
+          employeeCompany,
+          employeeJson,
+          pulledAt,
+        },
+      });
+      jobIds.push(existingJob.id);
+    } else {
+      const newJob = await prisma.calloutJob.create({
+        data: {
+          voiceAgentId: schedule.voiceAgentId,
+          employeeExternalId,
+          employeeName,
+          employeePhone,
+          employeeCompany,
+          employeeJson,
+          pulledAt,
+        },
+      });
+      jobIds.push(newJob.id);
+    }
+  }
+
+  console.log(`[callouts] Saved ${jobIds.length} jobs, now triggering callouts...`);
+
+  // Step 3: Trigger callouts for all saved jobs
+  const triggerResult = await triggerCalloutsForVoiceAgent(schedule.voiceAgentId, { jobIds });
+  console.log(
+    `[callouts] Trigger result: ${triggerResult.triggered} triggered, ${triggerResult.failed} failed, ${triggerResult.skipped} skipped`
+  );
 };
 
 export const runSchedulesOnce = async (): Promise<void> => {

@@ -97,6 +97,8 @@ export const updateAcengageConfigSchema = z.object({
   updateUrlTemplate: z.string().min(1).max(500),
   employeeIdField: z.string().min(1).max(100),
   phoneField: z.string().min(1).max(100),
+  nameField: z.string().min(1).max(100),
+  companyField: z.string().min(1).max(100),
 });
 
 export const updateCalloutConfigSchema = z.object({

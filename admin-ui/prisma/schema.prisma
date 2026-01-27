@@ -44,10 +44,14 @@ enum CalloutJobStatus {
 enum CalloutAttemptStatus {
   QUEUED
   TRIGGERED
+  DIALING
+  RINGING
+  ANSWERED
   COMPLETED
   FAILED
   NO_ANSWER
   BUSY
+  VOICEMAIL
 }
 
 model VoiceAgent {
@@ -98,16 +102,20 @@ model CalloutSchedule {
 }
 
 model CalloutJob {
-  id                String           @id @default(cuid())
-  voiceAgentId      String
+  id                 String           @id @default(cuid())
+  voiceAgentId       String
   employeeExternalId String?
-  employeeJson      Json
-  status            CalloutJobStatus @default(PENDING)
-  totalAttempts     Int              @default(0)
-  lastAttemptAt     DateTime?
-  nextAttemptAt     DateTime?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  employeeName       String?
+  employeePhone      String?
+  employeeCompany    String?
+  employeeJson       Json
+  status             CalloutJobStatus @default(PENDING)
+  totalAttempts      Int              @default(0)
+  lastAttemptAt      DateTime?
+  nextAttemptAt      DateTime?
+  pulledAt           DateTime         @default(now())
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
 
   voiceAgent        VoiceAgent @relation(fields: [voiceAgentId], references: [id], onDelete: Cascade)
   attempts          CalloutAttempt[]
@@ -116,24 +124,31 @@ model CalloutJob {
   @@index([voiceAgentId])
   @@index([status])
   @@index([employeeExternalId])
+  @@index([pulledAt])
 }
 
 model CalloutAttempt {
-  id              String               @id @default(cuid())
-  calloutJobId    String
-  attemptNumber   Int
-  localDate       String
-  status          CalloutAttemptStatus @default(QUEUED)
-  requestedAt     DateTime?
-  completedAt     DateTime?
-  responseJson    Json?
-  errorMessage    String?
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
+  id               String               @id @default(cuid())
+  calloutJobId     String
+  attemptNumber    Int
+  localDate        String
+  status           CalloutAttemptStatus @default(QUEUED)
+  requestedAt      DateTime?
+  dialedAt         DateTime?
+  answeredAt       DateTime?
+  completedAt      DateTime?
+  callDurationSec  Int?
+  callSid          String?
+  callTranscriptId String?
+  responseJson     Json?
+  errorMessage     String?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
 
   calloutJob      CalloutJob @relation(fields: [calloutJobId], references: [id], onDelete: Cascade)
 
   @@index([calloutJobId])
+  @@index([callSid])
   @@unique([calloutJobId, attemptNumber])
 }
 
