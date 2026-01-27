@@ -124,3 +124,40 @@ export const createFeedbackSchema = z.object({
 });
 
 export type CreateFeedbackInput = z.infer<typeof createFeedbackSchema>;
+
+// ---------- Transcript Ingest ----------
+export const transcriptEntrySchema = z.object({
+  timestamp: z.string().min(1),
+  speaker: z.string().min(1),
+  text: z.string().min(1),
+  confidence: z.number().min(0).max(1).optional().nullable(),
+  event_type: z.string().optional().nullable(),
+});
+
+export const transcriptAnalyticsSchema = z.object({
+  total_exchanges: z.number().int().min(0).optional(),
+  user_messages: z.number().int().min(0).optional(),
+  assistant_messages: z.number().int().min(0).optional(),
+  question_answer_pairs: z.number().int().min(0).optional(),
+  parameters_attempted: z.array(z.string()).optional(),
+  parameters_captured: z.array(z.string()).optional(),
+  drop_off_point: z.string().nullable().optional(),
+});
+
+export const saveTranscriptSchema = z
+  .object({
+    call_id: z.string().min(1),
+    timestamp: z.string().optional(),
+    call_start_time: z.number().optional().nullable(),
+    call_end_time: z.number().optional().nullable(),
+    call_duration: z.number().optional().nullable(),
+    conversation: z.array(transcriptEntrySchema).optional(),
+    simple_transcripts: z.array(z.string().min(1)).optional(),
+    current_sales_data: z.record(z.any()).optional(),
+    analytics: transcriptAnalyticsSchema.optional(),
+  })
+  .refine((data) => (data.conversation?.length ?? 0) > 0 || (data.simple_transcripts?.length ?? 0) > 0, {
+    message: "Either conversation or simple_transcripts is required",
+  });
+
+export type SaveTranscriptInput = z.infer<typeof saveTranscriptSchema>;

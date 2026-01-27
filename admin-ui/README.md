@@ -15,6 +15,9 @@ Admin UI for managing VoiceAgent configurations and tracking usage.
 - Manage **voice profiles** (advanced settings)
 - Capture **testing feedback**
 - Track **calls and minutes** (usage events)
+- Configure **Acengage callout schedules**
+- Configure **Elision telephony** details for outbound callouts
+- View **callout attempts and outcomes**
 
 ## Tech
 
@@ -65,8 +68,10 @@ npx prisma db seed
 
 This creates a pre-configured "USV Exit Interview Scheduler" with:
 - Greeting: "Hello. This call is from AceNgage on behalf of USV..."
-- Voice: Ananya (Indian)
+- Voice: Kavya (Indian)
 - Accent: Indian
 - Language: English
 - Default call flow steps
 - Basic guardrails
+- Acengage callout schedule (11:00 IST, 3/day for 2 days)
+- Elision telephony defaults
