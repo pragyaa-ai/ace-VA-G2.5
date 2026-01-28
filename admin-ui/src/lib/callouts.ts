@@ -25,15 +25,29 @@ export const DEFAULT_ACENGAGE_CONFIG: AcengageConfig = {
   companyField: "company",
 };
 
-// Helper to safely extract a string field from employee record
+// Helper to safely extract a string field from employee record (case-insensitive)
 export const safeExtractField = (
   employee: Record<string, unknown>,
   primaryField: string,
   fallbackFields: string[] = []
 ): string | null => {
   const fields = [primaryField, ...fallbackFields];
+  const employeeKeys = Object.keys(employee);
+  
   for (const field of fields) {
-    const value = employee[field];
+    // Try exact match first
+    let value = employee[field];
+    
+    // If not found, try case-insensitive match
+    if (value === null || value === undefined) {
+      const matchingKey = employeeKeys.find(
+        (k) => k.toLowerCase() === field.toLowerCase()
+      );
+      if (matchingKey) {
+        value = employee[matchingKey];
+      }
+    }
+    
     if (value === null || value === undefined) continue;
     if (typeof value === "string" && value.trim()) return value.trim();
     if (typeof value === "number") return String(value);

@@ -58,7 +58,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       const employeePhone = safeExtractField(
         employee,
         acengageConfig.phoneField,
-        ["phone_number", "phone", "mobile", "contact_number"]
+        ["mobile", "Mobile", "phone_number", "phone", "Phone", "contact_number", "phoneNumber"]
       );
 
       const employeeName = safeExtractField(
