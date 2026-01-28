@@ -132,6 +132,41 @@ def _should_end_call(texts: list[str], phrases: list[str]) -> bool:
     return any(phrase for phrase in phrases if phrase and phrase in combined)
 
 
+async def _process_media_message(
+    session: TelephonySession, 
+    msg: Dict[str, Any], 
+    audio_processor: AudioProcessor, 
+    cfg: Config
+) -> None:
+    """Process a media message from Elision."""
+    payload_b64 = msg.get("media", {}).get("payload")
+    if not payload_b64:
+        return
+
+    try:
+        # Decode base64 to bytes (A-law encoded audio)
+        alaw_bytes = base64.b64decode(payload_b64)
+        # Convert A-law to linear PCM (16-bit signed)
+        pcm_bytes = audioop.alaw2lin(alaw_bytes, 2)
+        # Convert bytes to samples
+        samples = list(struct.unpack(f'<{len(pcm_bytes)//2}h', pcm_bytes))
+    except Exception as e:
+        if cfg.DEBUG:
+            print(f"[{session.ucid}] ⚠️ Audio decode error: {e}")
+        return
+
+    session.input_buffer.extend(samples)
+
+    # Send chunks to Gemini
+    while len(session.input_buffer) >= cfg.AUDIO_BUFFER_SAMPLES_INPUT:
+        chunk = session.input_buffer[: cfg.AUDIO_BUFFER_SAMPLES_INPUT]
+        session.input_buffer = session.input_buffer[cfg.AUDIO_BUFFER_SAMPLES_INPUT :]
+
+        samples_np = audio_processor.waybeo_samples_to_np(chunk)
+        audio_b64 = audio_processor.process_input_8k_to_gemini_16k_b64(samples_np)
+        await session.gemini.send_audio_b64_pcm16(audio_b64)
+
+
 def _save_transcript(session: TelephonySession, cfg: Config) -> Optional[str]:
     """Save call transcript to JSON file. Returns the filepath if saved."""
     if not cfg.SAVE_TRANSCRIPTS or not session.transcripts:
@@ -386,54 +421,93 @@ async def handle_client(client_ws):
 
     try:
         # Wait for start event to get real UCID before connecting upstream
+        # Elision may sometimes send media before start, so we handle that
         if cfg.DEBUG:
             print(f"[telephony] ⏳ Waiting for start event (timeout=10s)...")
-        first = await asyncio.wait_for(client_ws.recv(), timeout=10.0)
-        if cfg.DEBUG:
-            preview = first[:500] if isinstance(first, str) else f"<binary {len(first)} bytes>"
-            print(f"[telephony] 📨 First message received: {preview}")
         
-        start_msg = json.loads(first)
-        if cfg.DEBUG:
-            print(f"[telephony] 📋 Parsed event: {start_msg.get('event')}, keys: {list(start_msg.keys())}")
+        start_msg = None
+        buffered_media = []
         
-        if start_msg.get("event") != "start":
-            if cfg.DEBUG:
-                print(f"[telephony] ❌ Expected 'start' event but got: {start_msg.get('event')}")
-            await client_ws.close(code=1008, reason="Expected start event")
-            return
+        # Try to get the start event, buffering any media that arrives first
+        for _ in range(50):  # Max 50 messages to find start
+            raw = await asyncio.wait_for(client_ws.recv(), timeout=10.0)
+            if cfg.DEBUG and start_msg is None:
+                preview = raw[:300] if isinstance(raw, str) else f"<binary {len(raw)} bytes>"
+                print(f"[telephony] 📨 Message received: {preview[:200]}...")
+            
+            try:
+                msg = json.loads(raw) if isinstance(raw, str) else None
+            except json.JSONDecodeError:
+                continue
+                
+            if msg is None:
+                continue
+            
+            event_type = msg.get("event")
+            
+            if event_type == "start":
+                start_msg = msg
+                if cfg.DEBUG:
+                    print(f"[telephony] 📋 Got start event, keys: {list(msg.keys())}")
+                break
+            elif event_type == "media":
+                # Buffer media events that arrive before start
+                buffered_media.append(msg)
+                # Extract stream_sid from media if we don't have it yet
+                if session.ucid == "UNKNOWN" and msg.get("stream_sid"):
+                    session.ucid = msg.get("stream_sid")
+                    if cfg.DEBUG:
+                        print(f"[telephony] 📋 Got stream_sid from media: {session.ucid}")
+            elif event_type in ("stop", "end", "close"):
+                if cfg.DEBUG:
+                    print(f"[telephony] 📋 Got {event_type} before start - closing")
+                return
+        
+        if start_msg is None:
+            # If we got stream_sid from media, we can proceed
+            if session.ucid != "UNKNOWN":
+                if cfg.DEBUG:
+                    print(f"[{session.ucid}] ⚠️ No start event received, but got stream_sid from media - proceeding")
+            else:
+                if cfg.DEBUG:
+                    print(f"[telephony] ❌ No start event received within timeout")
+                await client_ws.close(code=1008, reason="Expected start event")
+                return
 
         # Extract UCID - support multiple formats (Waybeo, Elision, etc.)
-        start_data = start_msg.get("start", {})
-        session.ucid = (
-            start_msg.get("ucid")
-            or start_data.get("ucid")
-            or start_msg.get("stream_sid")  # Elision format
-            or start_data.get("stream_sid")
-            or start_data.get("call_sid")   # Elision call ID
-            or start_msg.get("data", {}).get("ucid")
-            or "UNKNOWN"
-        )
+        if start_msg:
+            start_data = start_msg.get("start", {})
+            session.ucid = (
+                start_msg.get("ucid")
+                or start_data.get("ucid")
+                or start_msg.get("stream_sid")  # Elision format
+                or start_data.get("stream_sid")
+                or start_data.get("call_sid")   # Elision call ID
+                or start_msg.get("data", {}).get("ucid")
+                or session.ucid  # Keep what we got from media
+            )
+            
+            # Extract phone number from start message
+            session.phone_number = (
+                start_msg.get("phone")
+                or start_data.get("phone")
+                or start_data.get("from")       # Elision uses "from" for caller number
+                or start_msg.get("callerNumber")
+                or start_data.get("callerNumber")
+            )
+        
         session.call_start_time = datetime.now()
 
-        # Extract phone number from URL query params or start message
+        # Extract phone number from URL query params if not found
         from urllib.parse import parse_qs, urlparse
         parsed = urlparse(path)
         qs = parse_qs(parsed.query)
-        session.phone_number = (
-            start_msg.get("phone")
-            or start_data.get("phone")
-            or start_data.get("from")       # Elision uses "from" for caller number
-            or (qs.get("phone", [None])[0] if qs.get("phone") else None)
-            or start_msg.get("callerNumber")
-            or start_data.get("callerNumber")
-        )
+        if not session.phone_number:
+            session.phone_number = qs.get("phone", [None])[0]
         
         if cfg.DEBUG:
             print(f"[{session.ucid}] 📱 Extracted phone: {session.phone_number}")
-
-        if cfg.DEBUG:
-            print(f"[{session.ucid}] 🎬 start event received on path={path}, phone={session.phone_number}")
+            print(f"[{session.ucid}] 🎬 Start processing, buffered {len(buffered_media)} media packets")
 
         # Connect to Gemini
         await session.gemini.connect()
@@ -442,6 +516,10 @@ async def handle_client(client_ws):
 
         # Start reader task
         gemini_task = asyncio.create_task(_gemini_reader(session, audio_processor, cfg))
+        
+        # Process any buffered media that arrived before start
+        for buffered_msg in buffered_media:
+            await _process_media_message(session, buffered_msg, audio_processor, cfg)
 
         # Process remaining messages
         async for raw in client_ws:
@@ -489,37 +567,7 @@ async def handle_client(client_ws):
 
             # Handle Elision format: {"event":"media","media":{"payload":"BASE64"}}
             if event == "media" and msg.get("media"):
-                payload_b64 = msg["media"].get("payload")
-                if not payload_b64:
-                    continue
-
-                # Decode base64 to bytes (A-law encoded audio)
-                try:
-                    alaw_bytes = base64.b64decode(payload_b64)
-                    # Convert A-law to linear PCM (16-bit signed)
-                    pcm_bytes = audioop.alaw2lin(alaw_bytes, 2)
-                    # Convert bytes to samples
-                    samples = list(struct.unpack(f'<{len(pcm_bytes)//2}h', pcm_bytes))
-                except Exception as e:
-                    if cfg.DEBUG:
-                        print(f"[{session.ucid}] ⚠️ Audio decode error: {e}")
-                    continue
-
-                session.input_buffer.extend(samples)
-
-                # Track audio chunks sent to Gemini
-                chunks_sent = 0
-                while len(session.input_buffer) >= cfg.AUDIO_BUFFER_SAMPLES_INPUT:
-                    chunk = session.input_buffer[: cfg.AUDIO_BUFFER_SAMPLES_INPUT]
-                    session.input_buffer = session.input_buffer[cfg.AUDIO_BUFFER_SAMPLES_INPUT :]
-
-                    samples_np = audio_processor.waybeo_samples_to_np(chunk)
-                    audio_b64 = audio_processor.process_input_8k_to_gemini_16k_b64(samples_np)
-                    await session.gemini.send_audio_b64_pcm16(audio_b64)
-                    chunks_sent += 1
-
-                if cfg.DEBUG and cfg.LOG_MEDIA and chunks_sent > 0:
-                    print(f"[{session.ucid}] 🎤 Sent {chunks_sent} audio chunk(s) to Gemini ({len(samples)} samples)")
+                await _process_media_message(session, msg, audio_processor, cfg)
 
             # Handle old Waybeo format: {"event":"media","data":{"samples":[...]}}
             elif event == "media" and msg.get("data"):
