@@ -408,7 +408,7 @@ async def analyze_transcript_async(
         )
     
     payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {
             "temperature": 0.1,
             "maxOutputTokens": 2048,
