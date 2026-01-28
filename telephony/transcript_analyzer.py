@@ -127,7 +127,7 @@ ANALYSIS_PROMPT = """You are an expert HR analyst reviewing a voice call transcr
 
 Analyze the conversation and extract the following information in JSON format:
 
-{
+{{
   "callback_date": "YYYY-MM-DD format or null if not scheduled",
   "callback_time": "HH:MM in 24-hour format or null if not scheduled", 
   "outcome": "scheduled | not_interested | callback_later | incomplete | no_clear_outcome",
@@ -150,7 +150,7 @@ Analyze the conversation and extract the following information in JSON format:
   "special_notes": "any other important observations for the HR counsellor, or null",
   
   "confidence": 0.0-1.0 (how confident you are in this analysis)
-}
+}}
 
 Important:
 - For dates, convert relative dates to absolute dates based on the call date: {call_date}
@@ -416,8 +416,9 @@ async def analyze_transcript_async(
     }
     
     try:
-        print("[analyzer] 🔍 Analyzing transcript with Gemini 2.0 Flash (async)...")
-        print(f"[analyzer] 📡 URL: {url[:80]}...")
+        print(f"[analyzer] 🔍 Analyzing transcript with Gemini 2.0 Flash (async)...")
+        print(f"[analyzer] 📡 Transcripts: {len(transcripts)} entries")
+        print(f"[analyzer] 📡 URL: {url[:100]}...")
         
         timeout = aiohttp.ClientTimeout(total=30)
         async with aiohttp.ClientSession(timeout=timeout) as session:
