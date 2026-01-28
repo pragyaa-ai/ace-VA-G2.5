@@ -8,6 +8,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     const result = await triggerCalloutsForVoiceAgent(params.id, { jobIds });
 
+    // If there's a config error, return it
+    if (result.error) {
+      return NextResponse.json({
+        success: false,
+        error: result.error,
+        ...result,
+      });
+    }
+
     return NextResponse.json({
       success: true,
       ...result,

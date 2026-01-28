@@ -59,6 +59,7 @@ type TriggerResult = {
   failed: number;
   skipped: number;
   attemptIds: string[];
+  error?: string;
 };
 
 /**
@@ -76,6 +77,8 @@ export const triggerCalloutsForVoiceAgent = async (
     attemptIds: [],
   };
 
+  const isManualTrigger = options?.jobIds && options.jobIds.length > 0;
+
   // Get voice agent with config
   const voiceAgent = await prisma.voiceAgent.findUnique({
     where: { id: voiceAgentId },
@@ -87,12 +90,16 @@ export const triggerCalloutsForVoiceAgent = async (
 
   if (!voiceAgent) {
     console.error("[callouts] VoiceAgent not found:", voiceAgentId);
+    result.error = "VoiceAgent not found";
     return result;
   }
 
   const schedule = voiceAgent.calloutSchedule;
-  if (!schedule || !schedule.isActive) {
+  
+  // For automated runs, require active schedule. For manual triggers, allow even if inactive.
+  if (!isManualTrigger && (!schedule || !schedule.isActive)) {
     console.log("[callouts] Schedule not active for:", voiceAgentId);
+    result.error = "Schedule not active";
     return result;
   }
 
@@ -107,12 +114,24 @@ export const triggerCalloutsForVoiceAgent = async (
   const comments = safeString(telephonyConfig.commentsTemplate);
 
   if (!addLeadUrl || !accessToken || !listId || !comments) {
-    console.error("[callouts] Missing Elision telephony config", { voiceAgentId });
+    const missing = [];
+    if (!addLeadUrl) missing.push("addLeadUrl");
+    if (!accessToken) missing.push("accessToken");
+    if (!listId) missing.push("listId");
+    if (!comments) missing.push("commentsTemplate");
+    console.error("[callouts] Missing Elision telephony config", { voiceAgentId, missing });
+    result.error = `Missing telephony config: ${missing.join(", ")}`;
     return result;
   }
 
-  const todayLocal = getLocalDateString(new Date(), schedule.timezone);
-  const maxAttempts = schedule.attemptsPerDay * schedule.maxDays;
+  // Use schedule timezone if available, otherwise default to IST
+  const timezone = schedule?.timezone ?? "Asia/Kolkata";
+  const attemptsPerDay = schedule?.attemptsPerDay ?? 3;
+  const maxDays = schedule?.maxDays ?? 2;
+  const escalationEnabled = schedule?.escalationEnabled ?? false;
+
+  const todayLocal = getLocalDateString(new Date(), timezone);
+  const maxAttempts = attemptsPerDay * maxDays;
 
   // Get jobs to process
   const whereClause: Prisma.CalloutJobWhereInput = {
@@ -139,7 +158,7 @@ export const triggerCalloutsForVoiceAgent = async (
 
     // Skip if max attempts reached
     if (job.totalAttempts >= maxAttempts) {
-      if (schedule.escalationEnabled && job.status !== "ESCALATED") {
+      if (escalationEnabled && job.status !== "ESCALATED") {
         await prisma.calloutJob.update({
           where: { id: job.id },
           data: { status: "ESCALATED" },
@@ -153,7 +172,7 @@ export const triggerCalloutsForVoiceAgent = async (
     const attemptsToday = await prisma.calloutAttempt.count({
       where: { calloutJobId: job.id, localDate: todayLocal },
     });
-    if (attemptsToday >= schedule.attemptsPerDay) {
+    if (attemptsToday >= attemptsPerDay) {
       result.skipped++;
       continue;
     }
@@ -207,7 +226,7 @@ export const triggerCalloutsForVoiceAgent = async (
 
     // Update job status
     const nextStatus =
-      schedule.escalationEnabled && attemptNumber >= maxAttempts
+      escalationEnabled && attemptNumber >= maxAttempts
         ? "ESCALATED"
         : job.status === "PENDING"
         ? "IN_PROGRESS"

@@ -269,17 +269,23 @@ export default function AcengageCalloutsPage() {
         body: JSON.stringify({ jobIds: [jobId] }),
       });
       const data = await res.json();
-      if (res.ok) {
-        if (data.triggered > 0) {
-          // Success - mark as triggered
-          setTriggeredJobIds((prev) => new Set([...prev, jobId]));
-        } else if (data.skipped > 0) {
-          alert("Call skipped - may have already been attempted today or missing phone number. Check the Phone Field mapping in settings.");
-        } else {
-          alert("Failed to trigger call - phone number may be missing. Ensure 'Phone Field' in API settings matches your data (e.g., 'mobile' instead of 'phone_number').");
-        }
+      
+      // Check for config errors first
+      if (data.error) {
+        alert(`Configuration error: ${data.error}`);
+        setTriggeringJobId(null);
+        return;
+      }
+      
+      if (res.ok && data.triggered > 0) {
+        // Success - mark as triggered
+        setTriggeredJobIds((prev) => new Set([...prev, jobId]));
+      } else if (data.skipped > 0) {
+        alert("Call skipped - may have already been attempted today, max attempts reached, or missing phone number.");
+      } else if (data.failed > 0) {
+        alert("Call failed - Elision API error. Check telephony settings.");
       } else {
-        alert(`Error: ${data.error || "Failed to trigger call"}`);
+        alert("No calls triggered. Ensure the employee has a valid phone number in the database.");
       }
     } catch (err) {
       alert(`Error: ${err instanceof Error ? err.message : "Unknown error"}`);
