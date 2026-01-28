@@ -259,6 +259,9 @@ async def handle_client(client_ws):
     except AttributeError:
         path = cfg.WS_PATH  # fallback to configured path
 
+    if cfg.DEBUG:
+        print(f"[telephony] 🔌 New WebSocket connection on path={path!r}")
+
     # websockets passes the request path including querystring (e.g. "/wsAcengage?phone=elision").
     # Accept those as long as the base path matches.
     base_path = (path or "").split("?", 1)[0]
@@ -271,6 +274,9 @@ async def handle_client(client_ws):
             )
         await client_ws.close(code=1008, reason="Invalid path")
         return
+    
+    if cfg.DEBUG:
+        print(f"[telephony] ✅ Path accepted, waiting for start event...")
 
     rates = AudioRates(
         telephony_sr=cfg.TELEPHONY_SR,
@@ -313,9 +319,20 @@ async def handle_client(client_ws):
 
     try:
         # Wait for start event to get real UCID before connecting upstream
+        if cfg.DEBUG:
+            print(f"[telephony] ⏳ Waiting for start event (timeout=10s)...")
         first = await asyncio.wait_for(client_ws.recv(), timeout=10.0)
+        if cfg.DEBUG:
+            preview = first[:500] if isinstance(first, str) else f"<binary {len(first)} bytes>"
+            print(f"[telephony] 📨 First message received: {preview}")
+        
         start_msg = json.loads(first)
+        if cfg.DEBUG:
+            print(f"[telephony] 📋 Parsed event: {start_msg.get('event')}, keys: {list(start_msg.keys())}")
+        
         if start_msg.get("event") != "start":
+            if cfg.DEBUG:
+                print(f"[telephony] ❌ Expected 'start' event but got: {start_msg.get('event')}")
             await client_ws.close(code=1008, reason="Expected start event")
             return
 
@@ -456,12 +473,14 @@ async def handle_client(client_ws):
             pass
 
     except asyncio.TimeoutError:
+        print(f"[{session.ucid}] ⏰ Timeout waiting for start event - closing connection")
         await client_ws.close(code=1008, reason="Timeout waiting for start event")
-    except ConnectionClosed:
-        pass
+    except ConnectionClosed as cc:
+        print(f"[{session.ucid}] 🔌 Connection closed: code={cc.code}, reason={cc.reason}")
+    except json.JSONDecodeError as je:
+        print(f"[{session.ucid}] ❌ JSON parse error: {je}")
     except Exception as e:
-        if cfg.DEBUG:
-            print(f"[{session.ucid}] ❌ Telephony handler error: {e}")
+        print(f"[{session.ucid}] ❌ Telephony handler error: {type(e).__name__}: {e}")
     finally:
         # Save transcript before closing
         if cfg.SAVE_TRANSCRIPTS and session.transcripts:
