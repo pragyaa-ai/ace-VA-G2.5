@@ -34,6 +34,8 @@ class Config:
     DEBUG: bool = _env_bool("DEBUG", False)
     LOG_MEDIA: bool = _env_bool("LOG_MEDIA", False)
     LOG_TRANSCRIPTS: bool = _env_bool("LOG_TRANSCRIPTS", True)
+    SAVE_TRANSCRIPTS: bool = _env_bool("SAVE_TRANSCRIPTS", True)
+    TRANSCRIPTS_DIR: str = os.getenv("TRANSCRIPTS_DIR", "data/transcripts")
     AUTO_END_CALL: bool = _env_bool("AUTO_END_CALL", False)
     END_CALL_PHRASES: str = os.getenv(
         "END_CALL_PHRASES", "thank you,thanks,thank-you,goodbye,bye"
@@ -102,6 +104,7 @@ class Config:
         print(f"🐞 DEBUG: {self.DEBUG}")
         print(f"🧾 LOG_MEDIA: {self.LOG_MEDIA}")
         print(f"📝 LOG_TRANSCRIPTS: {self.LOG_TRANSCRIPTS}")
+        print(f"💾 SAVE_TRANSCRIPTS: {self.SAVE_TRANSCRIPTS} → {self.TRANSCRIPTS_DIR}")
         print(f"🛑 AUTO_END_CALL: {self.AUTO_END_CALL}")
         print("=" * 68)
 

@@ -20,8 +20,10 @@ import base64
 import json
 import os
 import struct
-from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 import websockets
 from websockets.exceptions import ConnectionClosed
@@ -29,6 +31,14 @@ from websockets.exceptions import ConnectionClosed
 from config import Config
 from audio_processor import AudioProcessor, AudioRates
 from gemini_live import GeminiLiveSession, GeminiSessionConfig
+
+
+@dataclass
+class TranscriptEntry:
+    """Single transcript entry (either input or output)."""
+    role: str  # "agent" or "user"
+    text: str
+    timestamp: str
 
 
 @dataclass
@@ -40,6 +50,10 @@ class TelephonySession:
     output_buffer: list[int]
     closed: bool = False
     end_after_turn: bool = False
+    # Transcript collection
+    transcripts: List[TranscriptEntry] = field(default_factory=list)
+    call_start_time: Optional[datetime] = None
+    phone_number: Optional[str] = None
 
 
 def _read_prompt_text() -> str:
@@ -99,6 +113,46 @@ def _should_end_call(texts: list[str], phrases: list[str]) -> bool:
     return any(phrase for phrase in phrases if phrase and phrase in combined)
 
 
+def _save_transcript(session: TelephonySession, cfg: Config) -> Optional[str]:
+    """Save call transcript to JSON file. Returns the filepath if saved."""
+    if not cfg.SAVE_TRANSCRIPTS or not session.transcripts:
+        return None
+
+    try:
+        # Get the transcript directory (relative to telephony service or absolute)
+        transcript_dir = Path(cfg.TRANSCRIPTS_DIR)
+        if not transcript_dir.is_absolute():
+            transcript_dir = Path(__file__).parent / transcript_dir
+        transcript_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate filename with timestamp and ucid
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_ucid = "".join(c if c.isalnum() else "_" for c in session.ucid)
+        filename = f"{timestamp}_{safe_ucid}.json"
+        filepath = transcript_dir / filename
+
+        # Build transcript data
+        call_data = {
+            "callId": session.ucid,
+            "phoneNumber": session.phone_number,
+            "startTime": session.call_start_time.isoformat() if session.call_start_time else None,
+            "endTime": datetime.now().isoformat(),
+            "transcript": [
+                {"role": t.role, "text": t.text, "timestamp": t.timestamp}
+                for t in session.transcripts
+            ],
+        }
+
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(call_data, f, indent=2, ensure_ascii=False)
+
+        print(f"[{session.ucid}] 💾 Transcript saved: {filepath}")
+        return str(filepath)
+    except Exception as e:
+        print(f"[{session.ucid}] ❌ Failed to save transcript: {e}")
+        return None
+
+
 async def _gemini_reader(
     session: TelephonySession, audio_processor: AudioProcessor, cfg: Config
 ) -> None:
@@ -116,10 +170,20 @@ async def _gemini_reader(
                     has_text = any(p.get("text") for p in parts if isinstance(p, dict))
                     if has_audio and cfg.DEBUG and cfg.LOG_MEDIA:
                         print(f"[{session.ucid}] 🎵 Gemini sent audio response")
-                    if cfg.LOG_TRANSCRIPTS:
+                    if cfg.LOG_TRANSCRIPTS or cfg.SAVE_TRANSCRIPTS:
                         text_parts = _extract_transcripts(msg)
                         if text_parts:
-                            print(f"[{session.ucid}] 💬 Gemini text: {text_parts}")
+                            if cfg.LOG_TRANSCRIPTS:
+                                print(f"[{session.ucid}] 💬 Gemini text: {text_parts}")
+                            # Save to session transcript
+                            if cfg.SAVE_TRANSCRIPTS:
+                                combined_text = " ".join(text_parts)
+                                if combined_text.strip():
+                                    session.transcripts.append(TranscriptEntry(
+                                        role="agent",
+                                        text=combined_text.strip(),
+                                        timestamp=datetime.now().isoformat()
+                                    ))
                             if cfg.AUTO_END_CALL:
                                 phrases = [p.strip().lower() for p in cfg.END_CALL_PHRASES.split(",")]
                                 if _should_end_call(text_parts, phrases):
@@ -261,9 +325,22 @@ async def handle_client(client_ws):
             or start_msg.get("data", {}).get("ucid")
             or "UNKNOWN"
         )
+        session.call_start_time = datetime.now()
+
+        # Extract phone number from URL query params or start message
+        from urllib.parse import parse_qs, urlparse
+        parsed = urlparse(path)
+        qs = parse_qs(parsed.query)
+        session.phone_number = (
+            start_msg.get("phone")
+            or start_msg.get("start", {}).get("phone")
+            or (qs.get("phone", [None])[0] if qs.get("phone") else None)
+            or start_msg.get("callerNumber")
+            or start_msg.get("start", {}).get("callerNumber")
+        )
 
         if cfg.DEBUG:
-            print(f"[{session.ucid}] 🎬 start event received on path={path}")
+            print(f"[{session.ucid}] 🎬 start event received on path={path}, phone={session.phone_number}")
 
         # Connect to Gemini
         await session.gemini.connect()
@@ -386,10 +463,17 @@ async def handle_client(client_ws):
         if cfg.DEBUG:
             print(f"[{session.ucid}] ❌ Telephony handler error: {e}")
     finally:
+        # Save transcript before closing
+        if cfg.SAVE_TRANSCRIPTS and session.transcripts:
+            _save_transcript(session, cfg)
+        
         try:
             await session.gemini.close()
         except Exception:
             pass
+        
+        if cfg.DEBUG:
+            print(f"[{session.ucid}] 📞 Call ended. Transcripts collected: {len(session.transcripts)}")
 
 
 async def main() -> None:
