@@ -87,8 +87,8 @@ export const updateCalloutScheduleSchema = z.object({
   isActive: z.boolean(),
   runAtLocalTime: z.string().min(1).max(10),
   timezone: z.string().min(1).max(50),
-  attemptsPerDay: z.number().int().min(1).max(10),
-  maxDays: z.number().int().min(1).max(14),
+  attemptsPerDay: z.number().int().min(1).max(100),  // Increased for testing
+  maxDays: z.number().int().min(1).max(30),          // Increased for longer campaigns
   escalationEnabled: z.boolean(),
 });
 

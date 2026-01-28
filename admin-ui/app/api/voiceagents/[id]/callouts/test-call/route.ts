@@ -72,9 +72,67 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: `Failed to trigger call: ${callResult.error}` }, { status: 500 });
     }
 
+    // Create a CalloutJob and CalloutAttempt so test calls appear in the Callouts tab
+    const now = new Date();
+    const localDate = now.toISOString().split("T")[0];
+    
+    // Check if a test job already exists for this phone number
+    let testJob = await prisma.calloutJob.findFirst({
+      where: {
+        voiceAgentId: params.id,
+        employeePhone: phoneNumber,
+        employeeExternalId: `TEST-${phoneNumber}`,
+      },
+    });
+
+    if (!testJob) {
+      // Create new test job
+      testJob = await prisma.calloutJob.create({
+        data: {
+          voiceAgentId: params.id,
+          employeeExternalId: `TEST-${phoneNumber}`,
+          employeeName: "Test Call",
+          employeePhone: phoneNumber,
+          employeeCompany: "Test",
+          employeeJson: { source: "test-call", phoneNumber },
+          status: "IN_PROGRESS",
+          totalAttempts: 0,
+        },
+      });
+    }
+
+    // Count existing attempts for this job
+    const existingAttempts = await prisma.calloutAttempt.count({
+      where: { calloutJobId: testJob.id },
+    });
+
+    // Create attempt record
+    const attempt = await prisma.calloutAttempt.create({
+      data: {
+        calloutJobId: testJob.id,
+        attemptNumber: existingAttempts + 1,
+        localDate,
+        status: "TRIGGERED",
+        requestedAt: now,
+        responseJson: callResult.response,
+      },
+    });
+
+    // Update job
+    await prisma.calloutJob.update({
+      where: { id: testJob.id },
+      data: {
+        totalAttempts: existingAttempts + 1,
+        lastAttemptAt: now,
+        status: "IN_PROGRESS",
+      },
+    });
+
     return NextResponse.json({
       success: true,
       phoneNumber,
+      jobId: testJob.id,
+      attemptId: attempt.id,
       elisionResponse: callResult.response,
     });
   } catch (err) {
