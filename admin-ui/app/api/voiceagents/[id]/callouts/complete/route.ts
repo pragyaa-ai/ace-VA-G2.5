@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { CalloutAttemptStatus } from "@prisma/client";
+import { updateNcSchedule } from "@/services/acengage";
+import { DEFAULT_ACENGAGE_CONFIG } from "@/lib/callouts";
 
 /**
  * Endpoint for telephony service to report call completion status.
  * Called when a call ends, with details about whether it was answered,
  * call duration, and any extracted data (callback date/time).
+ * 
+ * If callback date/time is provided, automatically posts to Acengage API.
  */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -126,6 +130,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     });
 
     // Create or update outcome if callback info provided
+    let acengageResult = null;
     if (callbackDate || callbackTime || notes) {
       await prisma.calloutOutcome.upsert({
         where: { calloutJobId: job.id },
@@ -141,6 +146,49 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           notes: notes ?? undefined,
         },
       });
+
+      // If we have callback info, post to Acengage API
+      if (callbackDate && job.employeeExternalId) {
+        try {
+          // Get Acengage config from voice agent
+          const voiceAgent = await prisma.voiceAgent.findUnique({
+            where: { id: params.id },
+            include: { voiceProfile: true },
+          });
+
+          const settingsJson = (voiceAgent?.voiceProfile?.settingsJson ?? {}) as Record<
+            string,
+            unknown
+          >;
+          const acengageConfig = {
+            ...DEFAULT_ACENGAGE_CONFIG,
+            ...(settingsJson.acengage as Record<string, unknown> | undefined),
+          };
+
+          console.log(
+            `[complete] 📤 Posting to Acengage: employee=${job.employeeExternalId}, date=${callbackDate}, time=${callbackTime}`
+          );
+
+          acengageResult = await updateNcSchedule({
+            updateUrlTemplate: acengageConfig.updateUrlTemplate,
+            employeeId: job.employeeExternalId,
+            callbackDate,
+            callbackTime,
+            notes,
+          });
+
+          // Update outcome with posted timestamp
+          await prisma.calloutOutcome.update({
+            where: { calloutJobId: job.id },
+            data: { postedAt: new Date() },
+          });
+
+          console.log(`[complete] ✅ Acengage updated for employee ${job.employeeExternalId}`);
+        } catch (acengageErr) {
+          console.error(`[complete] ❌ Acengage post failed:`, acengageErr);
+          acengageResult = { error: String(acengageErr) };
+        }
+      }
     }
 
     return NextResponse.json({
@@ -148,6 +196,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       attemptId: attempt.id,
       jobId: job.id,
       status: attemptStatus,
+      acengagePosted: acengageResult !== null,
+      acengageResult,
     });
   } catch (err) {
     console.error("Error updating call completion:", err);

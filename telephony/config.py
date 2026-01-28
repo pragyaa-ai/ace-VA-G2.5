@@ -41,6 +41,12 @@ class Config:
         "END_CALL_PHRASES", "thank you,thanks,thank-you,goodbye,bye"
     )
 
+    # Webhook configuration for posting outcomes to admin-ui
+    WEBHOOK_ENABLED: bool = _env_bool("WEBHOOK_ENABLED", True)
+    ADMIN_UI_URL: str = os.getenv("ADMIN_UI_URL", "http://localhost:3101")
+    VOICE_AGENT_ID: str = os.getenv("VOICE_AGENT_ID", "")
+    WEBHOOK_TIMEOUT: int = int(os.getenv("WEBHOOK_TIMEOUT", "30"))
+
     # GCP / Gemini
     GCP_PROJECT_ID: str = os.getenv("GCP_PROJECT_ID", "")
     GEMINI_LOCATION: str = os.getenv("GEMINI_LOCATION", "us-central1")
@@ -106,6 +112,10 @@ class Config:
         print(f"📝 LOG_TRANSCRIPTS: {self.LOG_TRANSCRIPTS}")
         print(f"💾 SAVE_TRANSCRIPTS: {self.SAVE_TRANSCRIPTS} → {self.TRANSCRIPTS_DIR}")
         print(f"🛑 AUTO_END_CALL: {self.AUTO_END_CALL}")
+        print(f"🔗 WEBHOOK_ENABLED: {self.WEBHOOK_ENABLED}")
+        if self.WEBHOOK_ENABLED:
+            print(f"   📡 ADMIN_UI_URL: {self.ADMIN_UI_URL}")
+            print(f"   🤖 VOICE_AGENT_ID: {self.VOICE_AGENT_ID or '(not set)'}")
         print("=" * 68)
 
 

@@ -31,6 +31,12 @@ from websockets.exceptions import ConnectionClosed
 from config import Config
 from audio_processor import AudioProcessor, AudioRates
 from gemini_live import GeminiLiveSession, GeminiSessionConfig
+from transcript_processor import TranscriptEntry as ProcessorTranscriptEntry
+from webhook_client import (
+    get_webhook_client,
+    process_and_post_completion,
+    close_webhook_client,
+)
 
 
 @dataclass
@@ -607,8 +613,43 @@ async def handle_client(client_ws):
         print(f"[{session.ucid}] ❌ Telephony handler error: {type(e).__name__}: {e}")
     finally:
         # Save transcript before closing
+        transcript_filepath = None
         if cfg.SAVE_TRANSCRIPTS and session.transcripts:
-            _save_transcript(session, cfg)
+            transcript_filepath = _save_transcript(session, cfg)
+        
+        # Post completion webhook if enabled and we have transcripts
+        if cfg.WEBHOOK_ENABLED and session.transcripts and session.phone_number:
+            try:
+                # Convert to processor format
+                processor_transcripts = [
+                    ProcessorTranscriptEntry(
+                        role=t.role,
+                        text=t.text,
+                        timestamp=t.timestamp
+                    )
+                    for t in session.transcripts
+                ]
+                
+                webhook_client = get_webhook_client()
+                result = await process_and_post_completion(
+                    webhook_client,
+                    call_sid=session.ucid,
+                    phone_number=session.phone_number,
+                    transcripts=processor_transcripts,
+                    start_time=session.call_start_time,
+                    end_time=datetime.now(),
+                    transcript_filepath=transcript_filepath,
+                )
+                
+                if cfg.DEBUG:
+                    outcome = result.get("outcome")
+                    if outcome:
+                        print(f"[{session.ucid}] 📊 Outcome: {outcome.outcome}, date={outcome.callback_date}, time={outcome.callback_time}")
+            except Exception as e:
+                print(f"[{session.ucid}] ⚠️ Webhook error: {e}")
+        elif cfg.WEBHOOK_ENABLED and not session.phone_number:
+            if cfg.DEBUG:
+                print(f"[{session.ucid}] ⚠️ No phone number, skipping webhook")
         
         try:
             await session.gemini.close()
