@@ -54,6 +54,22 @@ const safeString = (value: unknown): string | null => {
   return null;
 };
 
+/**
+ * Normalize phone number for Elision API.
+ * Strips +91 prefix and any non-digit characters.
+ */
+const normalizePhoneNumber = (phone: string): string => {
+  // Remove all non-digit characters
+  let normalized = phone.replace(/\D/g, "");
+  
+  // Remove leading 91 if it's an Indian number (11+ digits starting with 91)
+  if (normalized.length >= 12 && normalized.startsWith("91")) {
+    normalized = normalized.substring(2);
+  }
+  
+  return normalized;
+};
+
 type TriggerResult = {
   triggered: number;
   failed: number;
@@ -165,11 +181,14 @@ export const triggerCalloutsForVoiceAgent = async (
 
   for (const job of jobs) {
     // Skip if no phone number
-    const phoneNumber = job.employeePhone;
-    if (!phoneNumber) {
+    const rawPhone = job.employeePhone;
+    if (!rawPhone) {
       result.skipped++;
       continue;
     }
+    
+    // Normalize phone number (strip +91 prefix for Elision)
+    const phoneNumber = normalizePhoneNumber(rawPhone);
 
     // Skip if max attempts reached
     if (job.totalAttempts >= maxAttempts) {
@@ -232,7 +251,7 @@ export const triggerCalloutsForVoiceAgent = async (
 
       result.triggered++;
       result.attemptIds.push(attempt.id);
-      console.log(`[callouts] Call triggered for ${phoneNumber}`);
+      console.log(`[callouts] Call triggered for ${phoneNumber} (raw: ${rawPhone})`);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : "Elision error";
       console.error(`[callouts] Call failed for ${phoneNumber}:`, errorMsg);
