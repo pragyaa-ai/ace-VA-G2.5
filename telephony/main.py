@@ -52,6 +52,7 @@ class TelephonySession:
     end_after_turn: bool = False
     # Transcript collection
     transcripts: List[TranscriptEntry] = field(default_factory=list)
+    current_agent_transcript: List[str] = field(default_factory=list)  # Accumulates words in current turn
     call_start_time: Optional[datetime] = None
     phone_number: Optional[str] = None
 
@@ -83,14 +84,32 @@ def _is_interrupted(msg: Dict[str, Any]) -> bool:
 
 
 def _extract_transcripts(msg: Dict[str, Any]) -> list[str]:
+    """Extract transcript text from Gemini message."""
     transcripts: list[str] = []
     sc = msg.get("serverContent", {})
+    
+    # Check modelTurn.parts for text
     model_turn = sc.get("modelTurn", {})
     parts = model_turn.get("parts", [])
     for part in parts:
         if isinstance(part, dict) and part.get("text"):
             transcripts.append(str(part.get("text")))
 
+    # Check outputTranscription (native audio model format)
+    output_trans = sc.get("outputTranscription")
+    if isinstance(output_trans, dict):
+        text = output_trans.get("text")
+        if text:
+            transcripts.append(str(text))
+
+    # Check inputTranscription (user speech)
+    input_trans = sc.get("inputTranscription")
+    if isinstance(input_trans, dict):
+        text = input_trans.get("text")
+        if text:
+            transcripts.append(str(text))
+
+    # Legacy format: outputAudioTranscription, inputAudioTranscription
     for key in ("outputAudioTranscription", "inputAudioTranscription"):
         blob = sc.get(key) or msg.get(key)
         if isinstance(blob, dict):
@@ -158,30 +177,9 @@ async def _gemini_reader(
 ) -> None:
     try:
         async for msg in session.gemini.messages():
-            # Debug: log all unique message types to understand Gemini's response format
-            if cfg.DEBUG:
-                msg_keys = sorted(msg.keys())
-                sc = msg.get("serverContent", {})
-                sc_keys = sorted(sc.keys()) if sc else []
-                
-                # Log non-audio content messages
-                has_audio = bool(sc.get("modelTurn", {}).get("parts", [{}])[0].get("inlineData") if sc.get("modelTurn", {}).get("parts") else False)
-                if not has_audio and msg_keys:
-                    # Log the message structure for debugging
-                    if sc_keys and sc_keys != ['modelTurn']:
-                        print(f"[{session.ucid}] 📩 Gemini msg: keys={msg_keys}, serverContent={sc_keys}")
-            
             if cfg.DEBUG or cfg.LOG_TRANSCRIPTS:
                 if msg.get("setupComplete") and cfg.DEBUG:
                     print(f"[{session.ucid}] 🏁 Gemini setupComplete")
-                
-                # Check for transcription in various possible locations
-                sc = msg.get("serverContent", {})
-                for key in ["outputTranscription", "transcription", "text", "transcript"]:
-                    if sc.get(key):
-                        print(f"[{session.ucid}] 📝 serverContent.{key}: {sc[key]}")
-                    if msg.get(key):
-                        print(f"[{session.ucid}] 📝 root.{key}: {msg[key]}")
                     
                 if msg.get("serverContent"):
                     # Log what type of content we're getting
@@ -193,37 +191,54 @@ async def _gemini_reader(
                     if has_audio and cfg.DEBUG and cfg.LOG_MEDIA:
                         print(f"[{session.ucid}] 🎵 Gemini sent audio response")
                     if cfg.LOG_TRANSCRIPTS or cfg.SAVE_TRANSCRIPTS:
-                        text_parts = _extract_transcripts(msg)
+                        sc = msg.get("serverContent", {})
                         
-                        # Debug: log raw serverContent structure to understand transcript format
-                        if cfg.DEBUG:
-                            sc = msg.get("serverContent", {})
-                            # Check for output transcription
-                            if sc.get("outputAudioTranscription"):
-                                print(f"[{session.ucid}] 📝 outputAudioTranscription: {sc.get('outputAudioTranscription')}")
-                            if sc.get("inputAudioTranscription"):
-                                print(f"[{session.ucid}] 🎤 inputAudioTranscription: {sc.get('inputAudioTranscription')}")
-                            if sc.get("turnComplete") and not text_parts:
-                                # Log what keys are present when turn completes with no transcripts
-                                sc_keys = list(sc.keys())
+                        # Handle outputTranscription (native audio model)
+                        output_trans = sc.get("outputTranscription", {})
+                        if output_trans:
+                            text = output_trans.get("text")
+                            finished = output_trans.get("finished", False)
+                            
+                            if text:
+                                # Accumulate words
+                                session.current_agent_transcript.append(text)
+                            
+                            if finished and session.current_agent_transcript:
+                                # Save complete transcript
+                                full_text = "".join(session.current_agent_transcript).strip()
+                                if full_text:
+                                    if cfg.LOG_TRANSCRIPTS:
+                                        print(f"[{session.ucid}] 💬 Agent: {full_text}")
+                                    if cfg.SAVE_TRANSCRIPTS:
+                                        session.transcripts.append(TranscriptEntry(
+                                            role="agent",
+                                            text=full_text,
+                                            timestamp=datetime.now().isoformat()
+                                        ))
+                                    if cfg.AUTO_END_CALL:
+                                        phrases = [p.strip().lower() for p in cfg.END_CALL_PHRASES.split(",")]
+                                        if _should_end_call([full_text], phrases):
+                                            session.end_after_turn = True
+                                session.current_agent_transcript.clear()
+                        
+                        # Handle inputTranscription (user speech) - if enabled
+                        input_trans = sc.get("inputTranscription", {})
+                        if input_trans:
+                            user_text = input_trans.get("text")
+                            if user_text and cfg.SAVE_TRANSCRIPTS:
+                                if cfg.LOG_TRANSCRIPTS:
+                                    print(f"[{session.ucid}] 🎤 User: {user_text}")
+                                session.transcripts.append(TranscriptEntry(
+                                    role="user",
+                                    text=user_text.strip(),
+                                    timestamp=datetime.now().isoformat()
+                                ))
+                        
+                        # Debug logging for turn complete
+                        if cfg.DEBUG and sc.get("turnComplete"):
+                            sc_keys = list(sc.keys())
+                            if not output_trans:
                                 print(f"[{session.ucid}] 🔍 Turn complete but no text, serverContent keys: {sc_keys}")
-                        
-                        if text_parts:
-                            if cfg.LOG_TRANSCRIPTS:
-                                print(f"[{session.ucid}] 💬 Gemini text: {text_parts}")
-                            # Save to session transcript
-                            if cfg.SAVE_TRANSCRIPTS:
-                                combined_text = " ".join(text_parts)
-                                if combined_text.strip():
-                                    session.transcripts.append(TranscriptEntry(
-                                        role="agent",
-                                        text=combined_text.strip(),
-                                        timestamp=datetime.now().isoformat()
-                                    ))
-                            if cfg.AUTO_END_CALL:
-                                phrases = [p.strip().lower() for p in cfg.END_CALL_PHRASES.split(",")]
-                                if _should_end_call(text_parts, phrases):
-                                    session.end_after_turn = True
                     if sc.get("turnComplete") and cfg.DEBUG:
                         print(f"[{session.ucid}] ✅ Gemini turn complete")
                 elif cfg.DEBUG:
@@ -236,6 +251,22 @@ async def _gemini_reader(
                 if cfg.DEBUG:
                     print(f"[{session.ucid}] 🛑 Gemini interrupted → clearing output buffer")
                 session.output_buffer.clear()
+                
+                # Send clear command to Elision to stop audio playback immediately
+                try:
+                    clear_payload = {
+                        "event": "clear",
+                        "stream_sid": session.ucid
+                    }
+                    await session.client_ws.send(json.dumps(clear_payload))
+                    if cfg.DEBUG:
+                        print(f"[{session.ucid}] 🔇 Sent clear event to Elision")
+                except Exception as e:
+                    if cfg.DEBUG:
+                        print(f"[{session.ucid}] ⚠️ Failed to send clear: {e}")
+                
+                # Clear current transcript buffer on interrupt
+                session.current_agent_transcript.clear()
                 continue
 
             audio_b64 = _extract_audio_b64_from_gemini_message(msg)
@@ -333,7 +364,7 @@ async def handle_client(client_ws):
         voice=cfg.GEMINI_VOICE,
         system_instructions=prompt,
         enable_affective_dialog=True,
-        enable_input_transcription=False,
+        enable_input_transcription=True,  # Capture user speech
         enable_output_transcription=True,
         # Lower VAD timings to reduce response delay.
         vad_silence_ms=150,
