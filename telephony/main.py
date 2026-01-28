@@ -31,7 +31,7 @@ from websockets.exceptions import ConnectionClosed
 from config import Config
 from audio_processor import AudioProcessor, AudioRates
 from gemini_live import GeminiLiveSession, GeminiSessionConfig
-from transcript_processor import TranscriptEntry as ProcessorTranscriptEntry
+from transcript_analyzer import TranscriptEntry as AnalyzerTranscriptEntry
 from webhook_client import (
     get_webhook_client,
     process_and_post_completion,
@@ -620,9 +620,9 @@ async def handle_client(client_ws):
         # Post completion webhook if enabled and we have transcripts
         if cfg.WEBHOOK_ENABLED and session.transcripts and session.phone_number:
             try:
-                # Convert to processor format
-                processor_transcripts = [
-                    ProcessorTranscriptEntry(
+                # Convert to analyzer format for Gemini processing
+                analyzer_transcripts = [
+                    AnalyzerTranscriptEntry(
                         role=t.role,
                         text=t.text,
                         timestamp=t.timestamp
@@ -635,7 +635,7 @@ async def handle_client(client_ws):
                     webhook_client,
                     call_sid=session.ucid,
                     phone_number=session.phone_number,
-                    transcripts=processor_transcripts,
+                    transcripts=analyzer_transcripts,
                     start_time=session.call_start_time,
                     end_time=datetime.now(),
                     transcript_filepath=transcript_filepath,
@@ -644,7 +644,15 @@ async def handle_client(client_ws):
                 if cfg.DEBUG:
                     outcome = result.get("outcome")
                     if outcome:
-                        print(f"[{session.ucid}] 📊 Outcome: {outcome.outcome}, date={outcome.callback_date}, time={outcome.callback_time}")
+                        print(f"[{session.ucid}] 📊 Gemini Analysis:")
+                        print(f"         outcome={outcome.outcome}, date={outcome.callback_date}, time={outcome.callback_time}")
+                        print(f"         sentiment={outcome.sentiment}, cooperation={outcome.cooperation_level}")
+                        if outcome.candidate_concerns:
+                            print(f"         concerns={outcome.candidate_concerns}")
+                    # Print counsellor brief
+                    brief = result.get("counsellor_brief")
+                    if brief:
+                        print(f"[{session.ucid}] 📋 Counsellor Brief:\n{brief}")
             except Exception as e:
                 print(f"[{session.ucid}] ⚠️ Webhook error: {e}")
         elif cfg.WEBHOOK_ENABLED and not session.phone_number:

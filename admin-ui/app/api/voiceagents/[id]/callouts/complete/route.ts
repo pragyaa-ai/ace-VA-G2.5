@@ -25,6 +25,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       callbackDate,
       callbackTime,
       notes,
+      // Extended analysis fields from Gemini
+      candidateConcerns,
+      candidateQueries,
+      sentiment,
+      cooperationLevel,
+      languagePreference,
+      languageIssues,
+      rescheduleRequested,
+      specialNotes,
+      analysisJson,
     } = body as {
       phoneNumber?: string;
       callSid?: string;
@@ -36,6 +46,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       callbackDate?: string;
       callbackTime?: string;
       notes?: string;
+      // Extended analysis fields
+      candidateConcerns?: string[];
+      candidateQueries?: string[];
+      sentiment?: string;
+      cooperationLevel?: string;
+      languagePreference?: string;
+      languageIssues?: string;
+      rescheduleRequested?: boolean;
+      specialNotes?: string;
+      analysisJson?: Record<string, unknown>;
     };
 
     if (!phoneNumber && !callSid) {
@@ -129,9 +149,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       },
     });
 
-    // Create or update outcome if callback info provided
+    // Create or update outcome if we have any meaningful data
     let acengageResult = null;
-    if (callbackDate || callbackTime || notes) {
+    const hasOutcomeData = callbackDate || callbackTime || notes || candidateConcerns || sentiment || analysisJson;
+    
+    if (hasOutcomeData) {
       await prisma.calloutOutcome.upsert({
         where: { calloutJobId: job.id },
         create: {
@@ -139,11 +161,29 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           callbackDate,
           callbackTime,
           notes,
+          candidateConcerns: candidateConcerns ?? [],
+          candidateQueries: candidateQueries ?? [],
+          sentiment,
+          cooperationLevel,
+          languagePreference,
+          languageIssues,
+          rescheduleRequested: rescheduleRequested ?? false,
+          specialNotes,
+          analysisJson: analysisJson ?? undefined,
         },
         update: {
           callbackDate: callbackDate ?? undefined,
           callbackTime: callbackTime ?? undefined,
           notes: notes ?? undefined,
+          candidateConcerns: candidateConcerns ?? undefined,
+          candidateQueries: candidateQueries ?? undefined,
+          sentiment: sentiment ?? undefined,
+          cooperationLevel: cooperationLevel ?? undefined,
+          languagePreference: languagePreference ?? undefined,
+          languageIssues: languageIssues ?? undefined,
+          rescheduleRequested: rescheduleRequested ?? undefined,
+          specialNotes: specialNotes ?? undefined,
+          analysisJson: analysisJson ?? undefined,
         },
       });
 

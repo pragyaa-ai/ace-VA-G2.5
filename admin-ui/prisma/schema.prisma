@@ -160,6 +160,18 @@ model CalloutOutcome {
   nonContactableStatusNodeId   Int?
   notes                        String?
   postedAt                     DateTime?
+  
+  // Extended analysis from Gemini 2.0 Flash
+  candidateConcerns            String[]  @default([])
+  candidateQueries             String[]  @default([])
+  sentiment                    String?   // positive, neutral, negative, hesitant
+  cooperationLevel             String?   // cooperative, hesitant, reluctant, uncooperative
+  languagePreference           String?   // English, Hindi
+  languageIssues               String?
+  rescheduleRequested          Boolean   @default(false)
+  specialNotes                 String?
+  analysisJson                 Json?     // Full raw analysis from Gemini
+  
   createdAt                    DateTime @default(now())
   updatedAt                    DateTime @updatedAt
 

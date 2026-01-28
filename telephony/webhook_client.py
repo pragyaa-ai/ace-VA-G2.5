@@ -4,6 +4,7 @@ Webhook client for posting call outcomes to admin-ui and Acengage.
 Sends completion notifications when calls end with:
 - Call status (answered, completed, no_answer, etc.)
 - Extracted callback date/time
+- Candidate insights (concerns, queries, sentiment)
 - Transcript reference
 """
 
@@ -14,11 +15,11 @@ import json
 import os
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import aiohttp
 
-from transcript_processor import ExtractedOutcome, TranscriptEntry, extract_outcome_from_transcripts
+from transcript_analyzer import AnalyzedOutcome, TranscriptEntry, analyze_transcript_async
 
 
 @dataclass
@@ -51,6 +52,16 @@ class CallCompletionPayload:
     callback_date: Optional[str] = None
     callback_time: Optional[str] = None
     notes: Optional[str] = None
+    # Extended analysis fields
+    candidate_concerns: Optional[List[str]] = None
+    candidate_queries: Optional[List[str]] = None
+    sentiment: Optional[str] = None
+    cooperation_level: Optional[str] = None
+    language_preference: Optional[str] = None
+    language_issues: Optional[str] = None
+    reschedule_requested: bool = False
+    special_notes: Optional[str] = None
+    analysis_json: Optional[Dict[str, Any]] = None
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -73,6 +84,25 @@ class CallCompletionPayload:
             result["callbackTime"] = self.callback_time
         if self.notes:
             result["notes"] = self.notes
+        # Extended analysis fields
+        if self.candidate_concerns:
+            result["candidateConcerns"] = self.candidate_concerns
+        if self.candidate_queries:
+            result["candidateQueries"] = self.candidate_queries
+        if self.sentiment:
+            result["sentiment"] = self.sentiment
+        if self.cooperation_level:
+            result["cooperationLevel"] = self.cooperation_level
+        if self.language_preference:
+            result["languagePreference"] = self.language_preference
+        if self.language_issues:
+            result["languageIssues"] = self.language_issues
+        if self.reschedule_requested:
+            result["rescheduleRequested"] = self.reschedule_requested
+        if self.special_notes:
+            result["specialNotes"] = self.special_notes
+        if self.analysis_json:
+            result["analysisJson"] = self.analysis_json
         return result
 
 
@@ -203,22 +233,30 @@ async def process_and_post_completion(
     webhook_client: WebhookClient,
     call_sid: str,
     phone_number: str,
-    transcripts: list[TranscriptEntry],
+    transcripts: List[TranscriptEntry],
     start_time: Optional[datetime] = None,
     end_time: Optional[datetime] = None,
     transcript_filepath: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Process transcripts and post completion webhook.
+    Process transcripts with Gemini AI and post completion webhook.
     
-    1. Extract outcome from transcripts
-    2. Post completion to admin-ui
-    3. Return result
+    1. Analyze transcript with Gemini 2.0 Flash
+    2. Extract scheduling info, concerns, queries, sentiment
+    3. Post completion to admin-ui
+    4. Return result
     """
-    # Extract outcome from transcripts
-    outcome = extract_outcome_from_transcripts(transcripts, start_time)
+    # Analyze transcript with Gemini 2.0 Flash
+    print(f"[webhook] 🔍 Analyzing transcript with Gemini 2.0 Flash...")
+    outcome = await analyze_transcript_async(transcripts, start_time)
     
-    print(f"[webhook] 🔍 Extracted outcome: {outcome}")
+    print(f"[webhook] 📊 Analysis result:")
+    print(f"         outcome={outcome.outcome}, date={outcome.callback_date}, time={outcome.callback_time}")
+    print(f"         sentiment={outcome.sentiment}, cooperation={outcome.cooperation_level}")
+    if outcome.candidate_concerns:
+        print(f"         concerns={outcome.candidate_concerns}")
+    if outcome.candidate_queries:
+        print(f"         queries={outcome.candidate_queries}")
     
     # Calculate duration
     duration_sec = None
@@ -231,10 +269,22 @@ async def process_and_post_completion(
         status = "completed"
     elif outcome.outcome == "not_interested":
         status = "completed"
-    elif outcome.outcome == "unknown" or outcome.outcome == "no_conversation":
+    elif outcome.outcome in ("unknown", "no_conversation", "no_clear_outcome"):
         status = "no_answer"
+    elif outcome.outcome in ("analysis_failed", "error", "timeout"):
+        status = "completed"  # Still mark as completed even if analysis failed
     
-    # Build payload
+    # Build comprehensive notes for HR counsellor
+    notes_parts = []
+    if outcome.special_notes:
+        notes_parts.append(outcome.special_notes)
+    if outcome.availability_notes:
+        notes_parts.append(f"Availability: {outcome.availability_notes}")
+    if outcome.language_issues:
+        notes_parts.append(f"Language: {outcome.language_issues}")
+    notes = " | ".join(notes_parts) if notes_parts else None
+    
+    # Build payload with full analysis
     payload = CallCompletionPayload(
         phone_number=phone_number,
         call_sid=call_sid,
@@ -245,7 +295,16 @@ async def process_and_post_completion(
         transcript_id=transcript_filepath,
         callback_date=outcome.callback_date,
         callback_time=outcome.callback_time,
-        notes=outcome.notes,
+        notes=notes,
+        candidate_concerns=outcome.candidate_concerns if outcome.candidate_concerns else None,
+        candidate_queries=outcome.candidate_queries if outcome.candidate_queries else None,
+        sentiment=outcome.sentiment,
+        cooperation_level=outcome.cooperation_level,
+        language_preference=outcome.language_preference,
+        language_issues=outcome.language_issues,
+        reschedule_requested=outcome.reschedule_requested,
+        special_notes=outcome.special_notes,
+        analysis_json=outcome.to_dict(),
     )
     
     # Post completion
@@ -254,6 +313,7 @@ async def process_and_post_completion(
     return {
         "outcome": outcome,
         "webhook_result": result,
+        "counsellor_brief": outcome.get_counsellor_brief(),
     }
 
 
@@ -280,21 +340,25 @@ async def close_webhook_client() -> None:
 
 # For testing
 if __name__ == "__main__":
-    import sys
-    
     async def test():
         # Set test environment
         os.environ["ADMIN_UI_URL"] = "http://localhost:3101"
         os.environ["VOICE_AGENT_ID"] = "test-agent-id"
+        os.environ["GCP_PROJECT_ID"] = "voiceagentprojects"
         
         client = get_webhook_client()
         
-        # Test with sample data
+        # Test with sample data - more realistic conversation
         transcripts = [
-            TranscriptEntry("agent", "Hello, scheduling exit interview.", "2026-01-28T09:52:16"),
-            TranscriptEntry("user", "Tomorrow 4 pm please", "2026-01-28T09:52:30"),
+            TranscriptEntry("agent", "Hello. This call is from AceNgage on behalf of USV. We would like to schedule your exit interview with an HR counsellor. May I take a few moments to find a convenient time for you?", "2026-01-28T09:52:16"),
+            TranscriptEntry("user", "Hello, yes I have been expecting this call.", "2026-01-28T09:52:20"),
+            TranscriptEntry("agent", "Great! What date and time would work best for you?", "2026-01-28T09:52:25"),
+            TranscriptEntry("user", "I'm quite busy this week. Can we do tomorrow around 4 pm?", "2026-01-28T09:52:30"),
             TranscriptEntry("agent", "You are all set for January 29th at 4 pm. Thanks!", "2026-01-28T09:52:38"),
-            TranscriptEntry("user", "Yes, thank you", "2026-01-28T09:52:45"),
+            TranscriptEntry("user", "Actually, can we change to day after at 5 pm? I just remembered I have a meeting.", "2026-01-28T09:52:43"),
+            TranscriptEntry("agent", "Of course! So January 30th at 5 pm works for you?", "2026-01-28T09:52:48"),
+            TranscriptEntry("user", "Yes, that's perfect. Will the call be in English or Hindi?", "2026-01-28T09:52:52"),
+            TranscriptEntry("agent", "The counsellor will speak in your preferred language. You will receive a call on January 30th at 5 pm. Thank you!", "2026-01-28T09:52:58"),
         ]
         
         result = await process_and_post_completion(
@@ -306,7 +370,14 @@ if __name__ == "__main__":
             end_time=datetime(2026, 1, 28, 9, 53, 0),
         )
         
-        print(f"\nResult: {result}")
+        print(f"\n{'='*60}")
+        print("WEBHOOK RESULT")
+        print(f"{'='*60}")
+        print(f"Outcome: {result['outcome'].outcome}")
+        print(f"Date: {result['outcome'].callback_date}")
+        print(f"Time: {result['outcome'].callback_time}")
+        print(f"\n📋 Counsellor Brief:")
+        print(result['counsellor_brief'])
         
         await close_webhook_client()
     
