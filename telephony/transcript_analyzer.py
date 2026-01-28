@@ -216,11 +216,40 @@ def _parse_gemini_response(response_text: str) -> Dict[str, Any]:
             lines = lines[:-1]
         text = "\n".join(lines)
     
+    # Also try to extract JSON from within the text if it contains other content
+    # Look for { ... } pattern
+    if not text.startswith("{"):
+        start_idx = text.find("{")
+        if start_idx != -1:
+            # Find matching closing brace
+            brace_count = 0
+            end_idx = start_idx
+            for i, char in enumerate(text[start_idx:], start_idx):
+                if char == "{":
+                    brace_count += 1
+                elif char == "}":
+                    brace_count -= 1
+                    if brace_count == 0:
+                        end_idx = i + 1
+                        break
+            text = text[start_idx:end_idx]
+    
     try:
         return json.loads(text)
     except json.JSONDecodeError as e:
         print(f"[analyzer] ⚠️ JSON parse error: {e}")
-        print(f"[analyzer] Raw response: {text[:500]}")
+        print(f"[analyzer] Raw response (first 500 chars): {response_text[:500]}")
+        
+        # Try a more aggressive extraction - find the JSON object
+        try:
+            import re
+            # Match JSON object pattern
+            match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response_text, re.DOTALL)
+            if match:
+                return json.loads(match.group())
+        except Exception:
+            pass
+        
         return {}
 
 
@@ -388,30 +417,41 @@ async def analyze_transcript_async(
     
     try:
         print("[analyzer] 🔍 Analyzing transcript with Gemini 2.0 Flash (async)...")
+        print(f"[analyzer] 📡 URL: {url[:80]}...")
         
         timeout = aiohttp.ClientTimeout(total=30)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(url, headers=headers, json=payload) as response:
+                response_text_raw = await response.text()
+                
                 if response.status != 200:
-                    error_text = await response.text()
-                    print(f"[analyzer] ❌ Gemini API error ({response.status}): {error_text[:500]}")
+                    print(f"[analyzer] ❌ Gemini API error ({response.status}): {response_text_raw[:500]}")
                     return AnalyzedOutcome(outcome="analysis_failed", confidence=0.0)
                 
-                result = await response.json()
+                try:
+                    result = json.loads(response_text_raw)
+                except json.JSONDecodeError as e:
+                    print(f"[analyzer] ❌ Failed to parse API response as JSON: {e}")
+                    print(f"[analyzer] Raw response: {response_text_raw[:500]}")
+                    return AnalyzedOutcome(outcome="analysis_failed", confidence=0.0)
         
         # Extract text from response
         candidates = result.get("candidates", [])
         if not candidates:
-            print("[analyzer] ⚠️ No candidates in Gemini response")
+            print(f"[analyzer] ⚠️ No candidates in Gemini response. Keys: {list(result.keys())}")
+            if "error" in result:
+                print(f"[analyzer] ❌ API Error: {result['error']}")
             return AnalyzedOutcome(outcome="analysis_failed", confidence=0.0)
         
         content = candidates[0].get("content", {})
         parts = content.get("parts", [])
         if not parts:
-            print("[analyzer] ⚠️ No parts in Gemini response")
+            print(f"[analyzer] ⚠️ No parts in Gemini response. Content keys: {list(content.keys())}")
             return AnalyzedOutcome(outcome="analysis_failed", confidence=0.0)
         
         response_text = parts[0].get("text", "")
+        print(f"[analyzer] 📝 Gemini response length: {len(response_text)} chars")
+        
         analysis = _parse_gemini_response(response_text)
         
         if not analysis:
