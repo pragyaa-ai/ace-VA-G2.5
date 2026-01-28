@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { DEFAULT_ACENGAGE_CONFIG, safeExtractField } from "@/lib/callouts";
 import { fetchNcEmployees } from "@/services/acengage";
-import { triggerElisionCallout } from "@/services/elision";
+import { triggerElisionCall, getElisionToken } from "@/services/elision";
 import { Prisma } from "@prisma/client";
 
 type SchedulerHandle = {
@@ -106,23 +106,38 @@ export const triggerCalloutsForVoiceAgent = async (
   const settingsJson = (voiceAgent.voiceProfile?.settingsJson ?? {}) as Record<string, unknown>;
   const telephonyConfig = (settingsJson.telephony ?? {}) as Record<string, unknown>;
 
+  const authUrl = safeString(telephonyConfig.authUrl);
   const addLeadUrl = safeString(telephonyConfig.addLeadUrl);
-  const accessToken = safeString(telephonyConfig.accessToken);
+  const username = safeString(telephonyConfig.username);
+  const password = safeString(telephonyConfig.password);
   const listId = safeString(telephonyConfig.listId);
   const source = safeString(telephonyConfig.source) ?? "Bot";
   const addToHopper = safeString(telephonyConfig.addToHopper) ?? "Y";
   const comments = safeString(telephonyConfig.commentsTemplate);
 
-  if (!addLeadUrl || !accessToken || !listId || !comments) {
+  if (!authUrl || !addLeadUrl || !username || !password || !listId || !comments) {
     const missing = [];
+    if (!authUrl) missing.push("authUrl");
     if (!addLeadUrl) missing.push("addLeadUrl");
-    if (!accessToken) missing.push("accessToken");
+    if (!username) missing.push("username");
+    if (!password) missing.push("password");
     if (!listId) missing.push("listId");
     if (!comments) missing.push("commentsTemplate");
     console.error("[callouts] Missing Elision telephony config", { voiceAgentId, missing });
     result.error = `Missing telephony config: ${missing.join(", ")}`;
     return result;
   }
+
+  // Get fresh token from Elision auth endpoint
+  console.log("[callouts] Getting Elision token...");
+  const tokenResult = await getElisionToken(authUrl, username, password);
+  if (!tokenResult.success || !tokenResult.token) {
+    console.error("[callouts] Failed to get Elision token:", tokenResult.error);
+    result.error = `Failed to get Elision token: ${tokenResult.error}`;
+    return result;
+  }
+  const accessToken = tokenResult.token;
+  console.log("[callouts] Elision token obtained successfully");
 
   // Use schedule timezone if available, otherwise default to IST
   const timezone = schedule?.timezone ?? "Asia/Kolkata";
@@ -190,16 +205,21 @@ export const triggerCalloutsForVoiceAgent = async (
     });
 
     try {
-      const response = await triggerElisionCallout({
+      const callResult = await triggerElisionCall({
         addLeadUrl,
-        accessToken,
+        token: accessToken,
         phoneNumber,
         listId,
         source,
         addToHopper,
         comments,
       });
-      const responseJson = response as Prisma.InputJsonValue;
+
+      if (!callResult.success) {
+        throw new Error(callResult.error || "Elision call failed");
+      }
+
+      const responseJson = callResult.response as Prisma.InputJsonValue;
 
       await prisma.calloutAttempt.update({
         where: { id: attempt.id },
@@ -212,13 +232,16 @@ export const triggerCalloutsForVoiceAgent = async (
 
       result.triggered++;
       result.attemptIds.push(attempt.id);
+      console.log(`[callouts] Call triggered for ${phoneNumber}`);
     } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : "Elision error";
+      console.error(`[callouts] Call failed for ${phoneNumber}:`, errorMsg);
       await prisma.calloutAttempt.update({
         where: { id: attempt.id },
         data: {
           status: "FAILED",
           requestedAt: new Date(),
-          errorMessage: error instanceof Error ? error.message : "Elision error",
+          errorMessage: errorMsg,
         },
       });
       result.failed++;
