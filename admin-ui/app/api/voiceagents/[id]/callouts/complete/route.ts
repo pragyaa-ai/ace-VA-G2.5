@@ -226,8 +226,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             `[complete] 📤 Posting to Acengage: employee=${job.employeeExternalId}, date=${callbackDate}, time=${callbackTime}`
           );
 
-          // Get status node ID from config or use default (718 = Scheduled/Callback)
-          const scheduledStatusNodeId = (acengageConfig as Record<string, unknown>).scheduledStatusNodeId as number | undefined ?? 718;
+          // Get status node ID from config or use default (61430102 = Callback Scheduling)
+          const scheduledStatusNodeId = (acengageConfig as Record<string, unknown>).scheduledStatusNodeId as number | undefined ?? 61430102;
           
           acengageResult = await updateNcSchedule({
             updateUrlTemplate: acengageConfig.updateUrlTemplate,
