@@ -66,31 +66,45 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       );
     }
 
+    // Normalize phone number for flexible matching (strip +, country code, spaces)
+    const normalizePhone = (phone: string): string => {
+      return phone.replace(/[\s\-\+]/g, "").replace(/^91/, "").slice(-10);
+    };
+    const normalizedPhone = phoneNumber ? normalizePhone(phoneNumber) : null;
+
     // Find the most recent attempt for this phone number or callSid
     let attempt = null;
+    let job = null;
 
     if (callSid) {
       attempt = await prisma.calloutAttempt.findFirst({
         where: { callSid },
         include: { calloutJob: true },
       });
+      if (attempt) {
+        job = attempt.calloutJob;
+      }
     }
 
-    if (!attempt && phoneNumber) {
-      // Find by phone number - get most recent TRIGGERED or DIALING attempt
-      const job = await prisma.calloutJob.findFirst({
-        where: {
-          voiceAgentId: params.id,
-          employeePhone: phoneNumber,
-        },
+    if (!attempt && normalizedPhone) {
+      // Find by phone number - search with flexible matching
+      const allJobs = await prisma.calloutJob.findMany({
+        where: { voiceAgentId: params.id },
         orderBy: { updatedAt: "desc" },
+        take: 100,
       });
+
+      // Find job with matching phone (normalized)
+      job = allJobs.find((j) => {
+        if (!j.employeePhone) return false;
+        return normalizePhone(j.employeePhone) === normalizedPhone;
+      }) ?? null;
 
       if (job) {
         attempt = await prisma.calloutAttempt.findFirst({
           where: {
             calloutJobId: job.id,
-            status: { in: ["TRIGGERED", "DIALING", "RINGING", "ANSWERED"] },
+            status: { in: ["TRIGGERED", "DIALING", "RINGING", "ANSWERED", "QUEUED"] },
           },
           orderBy: { createdAt: "desc" },
           include: { calloutJob: true },
@@ -98,9 +112,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }
     }
 
-    if (!attempt) {
+    // If we found a job but no attempt, we can still update the job
+    if (!job) {
       return NextResponse.json(
-        { error: "No matching callout attempt found" },
+        { error: "No matching callout job found for phone: " + phoneNumber },
         { status: 404 }
       );
     }
@@ -118,21 +133,22 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const attemptStatus = statusMap[status?.toLowerCase() ?? ""] ?? "COMPLETED";
     const now = new Date();
 
-    // Update the attempt
-    await prisma.calloutAttempt.update({
-      where: { id: attempt.id },
-      data: {
-        status: attemptStatus,
-        callSid: callSid ?? attempt.callSid,
-        callDurationSec: durationSec,
-        answeredAt: answeredAt ? new Date(answeredAt) : undefined,
-        completedAt: completedAt ? new Date(completedAt) : now,
-        callTranscriptId: transcriptId,
-      },
-    });
+    // Update the attempt if it exists
+    if (attempt) {
+      await prisma.calloutAttempt.update({
+        where: { id: attempt.id },
+        data: {
+          status: attemptStatus,
+          callSid: callSid ?? attempt.callSid,
+          callDurationSec: durationSec,
+          answeredAt: answeredAt ? new Date(answeredAt) : undefined,
+          completedAt: completedAt ? new Date(completedAt) : now,
+          callTranscriptId: transcriptId,
+        },
+      });
+    }
 
     // Update job status based on call result
-    const job = attempt.calloutJob;
     let jobStatus = job.status;
 
     if (attemptStatus === "COMPLETED" || attemptStatus === "ANSWERED") {
@@ -234,7 +250,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     return NextResponse.json({
       success: true,
-      attemptId: attempt.id,
+      attemptId: attempt?.id ?? null,
       jobId: job.id,
       status: attemptStatus,
       acengagePosted: acengageResult !== null,
