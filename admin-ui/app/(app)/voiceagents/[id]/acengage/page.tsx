@@ -152,6 +152,25 @@ export default function AcengageCalloutsPage() {
     return sorted.slice(0, 7); // Show max 7 columns to leave room for actions
   }, [employees]);
 
+  // Auto-detect likely phone field from data
+  const detectedPhoneField = useMemo(() => {
+    if (employees.length === 0) return null;
+    const phonePatterns = ["mobile", "phone", "phone_number", "phoneNumber", "contact", "cell"];
+    const fields = Object.keys(employees[0] || {});
+    for (const pattern of phonePatterns) {
+      const match = fields.find((f) => f.toLowerCase() === pattern.toLowerCase());
+      if (match) return match;
+    }
+    return null;
+  }, [employees]);
+
+  // Check if configured phone field exists in data
+  const phoneFieldMismatch = useMemo(() => {
+    if (employees.length === 0) return false;
+    const fields = Object.keys(employees[0] || {});
+    return !fields.includes(config.phoneField);
+  }, [employees, config.phoneField]);
+
   // Map employee to saved job
   const employeeJobMap = useMemo(() => {
     const map = new Map<number, SavedEmployee>();
@@ -446,6 +465,29 @@ export default function AcengageCalloutsPage() {
           </div>
         )}
 
+        {/* Field mismatch warning */}
+        {phoneFieldMismatch && detectedPhoneField && (
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div className="text-sm">
+                <span className="text-amber-800 font-medium">⚠️ Phone field mismatch: </span>
+                <span className="text-amber-700">
+                  Config has &quot;<code className="bg-amber-100 px-1 rounded">{config.phoneField}</code>&quot;
+                  but data uses &quot;<code className="bg-amber-100 px-1 rounded">{detectedPhoneField}</code>&quot;
+                </span>
+              </div>
+              <button
+                className="px-3 py-1.5 text-xs font-medium bg-amber-600 text-white rounded hover:bg-amber-700"
+                onClick={() => {
+                  setConfig({ ...config, phoneField: detectedPhoneField });
+                }}
+              >
+                Use &quot;{detectedPhoneField}&quot;
+              </button>
+            </div>
+          </div>
+        )}
+
         {employees.length > 0 && (
           <>
             <div className="overflow-x-auto">
@@ -673,12 +715,33 @@ export default function AcengageCalloutsPage() {
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">
               Phone Field
+              {phoneFieldMismatch && employees.length > 0 && (
+                <span className="ml-2 text-xs text-amber-600">⚠️ not found in data</span>
+              )}
             </label>
-            <Input
-              value={config.phoneField}
-              onChange={(e) => setConfig({ ...config, phoneField: e.target.value })}
-              placeholder="phone_number"
-            />
+            {employees.length > 0 ? (
+              <select
+                value={config.phoneField}
+                onChange={(e) => setConfig({ ...config, phoneField: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                {!availableFields.includes(config.phoneField) && (
+                  <option value={config.phoneField}>{config.phoneField} (not in data)</option>
+                )}
+                {Object.keys(employees[0] || {}).map((field) => (
+                  <option key={field} value={field}>
+                    {field}
+                    {field === detectedPhoneField && " (recommended)"}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <Input
+                value={config.phoneField}
+                onChange={(e) => setConfig({ ...config, phoneField: e.target.value })}
+                placeholder="mobile"
+              />
+            )}
           </div>
 
           <div>

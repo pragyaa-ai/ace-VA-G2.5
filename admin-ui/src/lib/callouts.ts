@@ -20,7 +20,7 @@ export const DEFAULT_ACENGAGE_CONFIG: AcengageConfig = {
   getUrl: "https://api-app.acengage.com/campaign/bot/get_nc_employees/1",
   updateUrlTemplate: "https://api-app.acengage.com/campaign/bot/update_nc_schedule/{employeeId}",
   employeeIdField: "id",
-  phoneField: "phone_number",
+  phoneField: "mobile",  // Acengage API uses 'mobile' field
   nameField: "name",
   companyField: "company",
 };
