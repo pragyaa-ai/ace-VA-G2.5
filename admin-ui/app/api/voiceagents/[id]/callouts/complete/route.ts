@@ -55,7 +55,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       languageIssues?: string;
       rescheduleRequested?: boolean;
       specialNotes?: string;
-      analysisJson?: Record<string, unknown>;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      analysisJson?: any;
     };
 
     if (!phoneNumber && !callSid) {
