@@ -172,6 +172,20 @@ async def _gemini_reader(
                         print(f"[{session.ucid}] 🎵 Gemini sent audio response")
                     if cfg.LOG_TRANSCRIPTS or cfg.SAVE_TRANSCRIPTS:
                         text_parts = _extract_transcripts(msg)
+                        
+                        # Debug: log raw serverContent structure to understand transcript format
+                        if cfg.DEBUG:
+                            sc = msg.get("serverContent", {})
+                            # Check for output transcription
+                            if sc.get("outputAudioTranscription"):
+                                print(f"[{session.ucid}] 📝 outputAudioTranscription: {sc.get('outputAudioTranscription')}")
+                            if sc.get("inputAudioTranscription"):
+                                print(f"[{session.ucid}] 🎤 inputAudioTranscription: {sc.get('inputAudioTranscription')}")
+                            if sc.get("turnComplete") and not text_parts:
+                                # Log what keys are present when turn completes with no transcripts
+                                sc_keys = list(sc.keys())
+                                print(f"[{session.ucid}] 🔍 Turn complete but no text, serverContent keys: {sc_keys}")
+                        
                         if text_parts:
                             if cfg.LOG_TRANSCRIPTS:
                                 print(f"[{session.ucid}] 💬 Gemini text: {text_parts}")
@@ -336,9 +350,14 @@ async def handle_client(client_ws):
             await client_ws.close(code=1008, reason="Expected start event")
             return
 
+        # Extract UCID - support multiple formats (Waybeo, Elision, etc.)
+        start_data = start_msg.get("start", {})
         session.ucid = (
             start_msg.get("ucid")
-            or start_msg.get("start", {}).get("ucid")
+            or start_data.get("ucid")
+            or start_msg.get("stream_sid")  # Elision format
+            or start_data.get("stream_sid")
+            or start_data.get("call_sid")   # Elision call ID
             or start_msg.get("data", {}).get("ucid")
             or "UNKNOWN"
         )
@@ -350,11 +369,15 @@ async def handle_client(client_ws):
         qs = parse_qs(parsed.query)
         session.phone_number = (
             start_msg.get("phone")
-            or start_msg.get("start", {}).get("phone")
+            or start_data.get("phone")
+            or start_data.get("from")       # Elision uses "from" for caller number
             or (qs.get("phone", [None])[0] if qs.get("phone") else None)
             or start_msg.get("callerNumber")
-            or start_msg.get("start", {}).get("callerNumber")
+            or start_data.get("callerNumber")
         )
+        
+        if cfg.DEBUG:
+            print(f"[{session.ucid}] 📱 Extracted phone: {session.phone_number}")
 
         if cfg.DEBUG:
             print(f"[{session.ucid}] 🎬 start event received on path={path}, phone={session.phone_number}")
