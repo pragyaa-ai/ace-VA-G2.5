@@ -21,8 +21,8 @@ export const DEFAULT_ACENGAGE_CONFIG: AcengageConfig = {
   updateUrlTemplate: "https://api-app.acengage.com/campaign/bot/update_nc_schedule/{employeeId}",
   employeeIdField: "id",
   phoneField: "mobile",  // Acengage API uses 'mobile' field
-  nameField: "name",
-  companyField: "company",
+  nameField: "employee_name",  // Acengage API uses 'employee_name' field
+  companyField: "client",  // Acengage API uses 'client' field for company
 };
 
 // Helper to safely extract a string field from employee record (case-insensitive)

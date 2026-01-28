@@ -127,6 +127,20 @@ export default function AcengageCalloutsPage() {
   const [testResult, setTestResult] = useState<string>("");
   const [autoTriggerCallouts, setAutoTriggerCallouts] = useState(false);
   const [triggeredJobIds, setTriggeredJobIds] = useState<Set<string>>(new Set());
+  
+  // Manual entry form state
+  const [manualEntry, setManualEntry] = useState({
+    employeeName: "",
+    employeeId: "",
+    phone: "",
+    email: "",
+    company: "",
+  });
+  const [addingManual, setAddingManual] = useState(false);
+  
+  // Excel upload state
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState<string>("");
 
   // Detect available fields from employee data
   const availableFields = useMemo(() => {
@@ -318,6 +332,148 @@ export default function AcengageCalloutsPage() {
     setTriggering(false);
   };
 
+  const handleDownloadTemplate = () => {
+    const headers = ["employee_name", "employee_id", "mobile", "email", "client", "language"];
+    const sampleRows = [
+      ["John Doe", "EMP001", "+919876543210", "john@example.com", "Company Name", "English"],
+      ["Jane Smith", "EMP002", "+919876543211", "jane@example.com", "Company Name", "Hindi"],
+    ];
+    
+    const csvContent = [
+      headers.join(","),
+      ...sampleRows.map((row) => row.map((cell) => `"${cell}"`).join(",")),
+    ].join("\n");
+    
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "callout_upload_template.csv";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    
+    setUploading(true);
+    setUploadResult("");
+    
+    try {
+      const text = await file.text();
+      const lines = text.split("\n").filter((line) => line.trim());
+      
+      if (lines.length < 2) {
+        setUploadResult("Error: File must have at least a header row and one data row");
+        setUploading(false);
+        return;
+      }
+      
+      // Parse header
+      const headers = lines[0].split(",").map((h) => h.replace(/"/g, "").trim().toLowerCase());
+      
+      // Parse data rows
+      const records: Employee[] = [];
+      for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].match(/("([^"]*)"|[^,]+)/g) || [];
+        const record: Employee = {};
+        
+        headers.forEach((header, idx) => {
+          const value = values[idx]?.replace(/"/g, "").trim() || "";
+          record[header] = value;
+        });
+        
+        // Skip empty rows
+        if (record["mobile"] || record["phone"]) {
+          records.push(record);
+        }
+      }
+      
+      if (records.length === 0) {
+        setUploadResult("Error: No valid records found in file");
+        setUploading(false);
+        return;
+      }
+      
+      // Send to API
+      const res = await fetch(`/api/voiceagents/${params.id}/callouts/upload`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employees: records }),
+      });
+      
+      const data = await res.json();
+      
+      if (res.ok) {
+        setUploadResult(`✅ Uploaded ${data.savedCount} records (${data.newCount} new, ${data.updatedCount} updated)`);
+        // Refresh employee list if we had previous pull data
+        if (pullResult) {
+          handlePullData();
+        }
+      } else {
+        setUploadResult(`Error: ${data.error || "Upload failed"}`);
+      }
+    } catch (err) {
+      setUploadResult(`Error: ${err instanceof Error ? err.message : "Upload failed"}`);
+    }
+    
+    setUploading(false);
+    // Reset file input
+    event.target.value = "";
+  };
+
+  const handleAddManualEntry = async () => {
+    if (!manualEntry.phone.trim()) {
+      alert("Phone number is required");
+      return;
+    }
+    
+    setAddingManual(true);
+    
+    try {
+      const res = await fetch(`/api/voiceagents/${params.id}/callouts/upload`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          employees: [{
+            employee_name: manualEntry.employeeName,
+            id: manualEntry.employeeId || `MANUAL_${Date.now()}`,
+            mobile: manualEntry.phone,
+            email: manualEntry.email,
+            client: manualEntry.company,
+          }],
+        }),
+      });
+      
+      const data = await res.json();
+      
+      if (res.ok) {
+        alert(`✅ Record added successfully`);
+        // Reset form
+        setManualEntry({
+          employeeName: "",
+          employeeId: "",
+          phone: "",
+          email: "",
+          company: "",
+        });
+        // Refresh if we have pull data
+        if (pullResult) {
+          handlePullData();
+        }
+      } else {
+        alert(`Error: ${data.error || "Failed to add record"}`);
+      }
+    } catch (err) {
+      alert(`Error: ${err instanceof Error ? err.message : "Failed to add record"}`);
+    }
+    
+    setAddingManual(false);
+  };
+
   const getFieldValue = (emp: Employee, field: string): string => {
     const value = emp[field];
     if (value === null || value === undefined) return "—";
@@ -398,6 +554,106 @@ export default function AcengageCalloutsPage() {
             {testResult}
           </pre>
         )}
+      </Card>
+
+      {/* Manual Data Entry & Upload Section */}
+      <Card className="p-6 space-y-5 bg-gradient-to-br from-violet-50 to-white border-violet-100">
+        <div className="border-b border-violet-100 pb-4">
+          <h3 className="text-base font-semibold text-slate-900">Add Data Records</h3>
+          <p className="text-sm text-slate-500">
+            Manually add records or upload from Excel/CSV file.
+          </p>
+        </div>
+
+        {/* Excel Upload */}
+        <div className="flex flex-wrap items-center gap-4 p-4 bg-white/50 rounded-lg border border-violet-100">
+          <div className="flex-1">
+            <div className="text-sm font-medium text-slate-700 mb-1">Upload from Excel/CSV</div>
+            <p className="text-xs text-slate-500">
+              Download the template, fill in your data, and upload.
+            </p>
+          </div>
+          <button
+            onClick={handleDownloadTemplate}
+            className="px-3 py-1.5 text-sm font-medium text-violet-700 bg-violet-100 rounded hover:bg-violet-200"
+          >
+            📥 Download Template
+          </button>
+          <label className="px-3 py-1.5 text-sm font-medium text-white bg-violet-600 rounded hover:bg-violet-700 cursor-pointer">
+            {uploading ? "Uploading..." : "📤 Upload CSV"}
+            <input
+              type="file"
+              accept=".csv,.xlsx,.xls"
+              onChange={handleFileUpload}
+              disabled={uploading}
+              className="hidden"
+            />
+          </label>
+        </div>
+        
+        {uploadResult && (
+          <div className={`text-sm p-3 rounded-lg ${
+            uploadResult.startsWith("✅") ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
+          }`}>
+            {uploadResult}
+          </div>
+        )}
+
+        {/* Manual Entry Form */}
+        <div className="p-4 bg-white/50 rounded-lg border border-violet-100">
+          <div className="text-sm font-medium text-slate-700 mb-3">Add Single Record</div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Employee Name</label>
+              <Input
+                value={manualEntry.employeeName}
+                onChange={(e) => setManualEntry({ ...manualEntry, employeeName: e.target.value })}
+                placeholder="John Doe"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Employee ID</label>
+              <Input
+                value={manualEntry.employeeId}
+                onChange={(e) => setManualEntry({ ...manualEntry, employeeId: e.target.value })}
+                placeholder="EMP001"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Phone *</label>
+              <Input
+                value={manualEntry.phone}
+                onChange={(e) => setManualEntry({ ...manualEntry, phone: e.target.value })}
+                placeholder="+919876543210"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Email</label>
+              <Input
+                value={manualEntry.email}
+                onChange={(e) => setManualEntry({ ...manualEntry, email: e.target.value })}
+                placeholder="john@example.com"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Company</label>
+              <Input
+                value={manualEntry.company}
+                onChange={(e) => setManualEntry({ ...manualEntry, company: e.target.value })}
+                placeholder="Company Name"
+              />
+            </div>
+          </div>
+          <div className="mt-3 flex justify-end">
+            <Button
+              onClick={handleAddManualEntry}
+              disabled={addingManual || !manualEntry.phone.trim()}
+              className="bg-violet-600 hover:bg-violet-700"
+            >
+              {addingManual ? "Adding..." : "➕ Add Record"}
+            </Button>
+          </div>
+        </div>
       </Card>
 
       {/* Pull Data Section */}

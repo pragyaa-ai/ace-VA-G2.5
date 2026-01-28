@@ -1,15 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { fetchNcEmployees } from "@/services/acengage";
 import { DEFAULT_ACENGAGE_CONFIG, safeExtractField } from "@/lib/callouts";
-import { triggerCalloutsForVoiceAgent } from "@/services/calloutScheduler";
 import { Prisma } from "@prisma/client";
 
+type UploadEmployee = Record<string, unknown>;
+
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  // Check if we should auto-trigger callouts after pull
-  const url = new URL(req.url);
-  const autoTrigger = url.searchParams.get("autoTrigger") === "true";
   try {
+    const body = await req.json();
+    const employees = body.employees as UploadEmployee[];
+
+    if (!employees || !Array.isArray(employees) || employees.length === 0) {
+      return NextResponse.json({ error: "No employees provided" }, { status: 400 });
+    }
+
     // Get VoiceAgent config
     const voiceAgent = await prisma.voiceAgent.findUnique({
       where: { id: params.id },
@@ -20,23 +24,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: "VoiceAgent not found" }, { status: 404 });
     }
 
-    // Get Acengage config from settingsJson
+    // Get Acengage config for field mapping
     const settingsJson = voiceAgent.voiceProfile?.settingsJson as Record<string, unknown> | null;
     const acengageConfig = {
       ...DEFAULT_ACENGAGE_CONFIG,
       ...(settingsJson?.acengage as Record<string, unknown> | undefined),
     } as typeof DEFAULT_ACENGAGE_CONFIG;
 
-    const getUrl = acengageConfig.getUrl as string;
-    if (!getUrl) {
-      return NextResponse.json({ error: "Acengage GET URL not configured" }, { status: 400 });
-    }
-
-    // Fetch employees from Acengage
-    const result = await fetchNcEmployees(getUrl);
     const pulledAt = new Date();
-
-    // Save or update CalloutJob records for each employee
     const jobIds: string[] = [];
     const savedEmployees: Array<{
       jobId: string;
@@ -47,7 +42,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       isNew: boolean;
     }> = [];
 
-    for (const employee of result.employees) {
+    for (const employee of employees) {
       // Extract fields using configured field names with fallbacks
       const employeeExternalId = safeExtractField(
         employee,
@@ -73,16 +68,22 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         ["client", "company", "company_name", "organization", "companyName"]
       );
 
-      // Skip if no ID
-      if (!employeeExternalId) continue;
+      // Skip if no phone
+      if (!employeePhone) continue;
+
+      // Generate ID if not provided
+      const finalEmployeeExternalId = employeeExternalId || `UPLOAD_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
       const employeeJson = employee as Prisma.InputJsonValue;
 
-      // Check if job already exists
+      // Check if job already exists (by phone or external ID)
       const existingJob = await prisma.calloutJob.findFirst({
         where: {
           voiceAgentId: params.id,
-          employeeExternalId,
+          OR: [
+            { employeeExternalId: finalEmployeeExternalId },
+            { employeePhone },
+          ],
         },
       });
 
@@ -94,6 +95,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             employeeName,
             employeePhone,
             employeeCompany,
+            employeeExternalId: finalEmployeeExternalId,
             employeeJson,
             pulledAt,
           },
@@ -101,7 +103,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         jobIds.push(existingJob.id);
         savedEmployees.push({
           jobId: existingJob.id,
-          employeeExternalId,
+          employeeExternalId: finalEmployeeExternalId,
           employeeName,
           employeePhone,
           employeeCompany,
@@ -112,7 +114,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         const newJob = await prisma.calloutJob.create({
           data: {
             voiceAgentId: params.id,
-            employeeExternalId,
+            employeeExternalId: finalEmployeeExternalId,
             employeeName,
             employeePhone,
             employeeCompany,
@@ -123,7 +125,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         jobIds.push(newJob.id);
         savedEmployees.push({
           jobId: newJob.id,
-          employeeExternalId,
+          employeeExternalId: finalEmployeeExternalId,
           employeeName,
           employeePhone,
           employeeCompany,
@@ -132,39 +134,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }
     }
 
-    // Update status tree in settings if received
-    if (result.statusTree !== null && voiceAgent.voiceProfile) {
-      await prisma.voiceProfile.update({
-        where: { voiceAgentId: params.id },
-        data: {
-          settingsJson: {
-            ...(settingsJson ?? {}),
-            acengage: { ...acengageConfig, statusTree: result.statusTree },
-          },
-        },
-      });
-    }
-
-    // Optionally trigger callouts for the saved jobs
-    let triggerResult = null;
-    if (autoTrigger && jobIds.length > 0) {
-      triggerResult = await triggerCalloutsForVoiceAgent(params.id, { jobIds });
-    }
-
     return NextResponse.json({
-      employees: result.employees,
-      statusTree: result.statusTree,
-      count: result.employees.length,
       savedCount: savedEmployees.length,
       newCount: savedEmployees.filter((e) => e.isNew).length,
       updatedCount: savedEmployees.filter((e) => !e.isNew).length,
       jobIds,
       savedEmployees,
       pulledAt: pulledAt.toISOString(),
-      triggerResult,
     });
   } catch (err) {
-    console.error("Error pulling Acengage data:", err);
+    console.error("Error uploading callout data:", err);
     const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
   }
