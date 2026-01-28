@@ -251,13 +251,13 @@ export default function AcengageCalloutsPage() {
       });
       const data = await res.json();
       if (res.ok) {
-        setTriggeredJobIds((prev) => new Set([...prev, jobId]));
         if (data.triggered > 0) {
-          // Success - no alert needed, UI updates
+          // Success - mark as triggered
+          setTriggeredJobIds((prev) => new Set([...prev, jobId]));
         } else if (data.skipped > 0) {
-          alert("Call skipped - may have already been attempted today");
+          alert("Call skipped - may have already been attempted today or missing phone number. Check the Phone Field mapping in settings.");
         } else {
-          alert("Failed to trigger call");
+          alert("Failed to trigger call - phone number may be missing. Ensure 'Phone Field' in API settings matches your data (e.g., 'mobile' instead of 'phone_number').");
         }
       } else {
         alert(`Error: ${data.error || "Failed to trigger call"}`);
