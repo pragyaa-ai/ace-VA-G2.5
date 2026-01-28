@@ -161,6 +161,9 @@ model CalloutOutcome {
   notes                        String?
   postedAt                     DateTime?
   
+  // Call outcome classification
+  outcome                      String?   // scheduled, not_interested, callback_requested, no_response, disconnected, busy, wrong_number, language_barrier, voicemail, incomplete
+  
   // Extended analysis from Gemini 2.0 Flash
   candidateConcerns            String[]  @default([])
   candidateQueries             String[]  @default([])

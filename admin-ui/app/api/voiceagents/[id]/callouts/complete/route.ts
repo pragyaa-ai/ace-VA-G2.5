@@ -148,13 +148,24 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       });
     }
 
-    // Update job status based on call result
+    // Extract call outcome from analysis
+    const callOutcome = (analysisJson as Record<string, unknown> | undefined)?.outcome as string | undefined;
+
+    // Update job status based on call result and outcome
     let jobStatus = job.status;
 
     if (attemptStatus === "COMPLETED" || attemptStatus === "ANSWERED") {
-      // If we have callback info, mark as completed
-      if (callbackDate) {
+      // Mark job status based on call outcome
+      if (callOutcome === "scheduled") {
         jobStatus = "COMPLETED";
+      } else if (callOutcome === "not_interested") {
+        jobStatus = "COMPLETED";  // No more retries needed
+      } else if (callOutcome === "callback_requested") {
+        jobStatus = "PENDING";  // Will retry later
+      } else if (["no_response", "busy", "disconnected", "voicemail"].includes(callOutcome ?? "")) {
+        jobStatus = "PENDING";  // Will retry later
+      } else if (callOutcome === "wrong_number") {
+        jobStatus = "FAILED";  // Wrong number, don't retry
       }
     }
 
@@ -168,13 +179,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     // Create or update outcome if we have any meaningful data
     let acengageResult = null;
-    const hasOutcomeData = callbackDate || callbackTime || notes || candidateConcerns || sentiment || analysisJson;
+    const hasOutcomeData = callbackDate || callbackTime || notes || candidateConcerns || sentiment || analysisJson || callOutcome;
     
     if (hasOutcomeData) {
       await prisma.calloutOutcome.upsert({
         where: { calloutJobId: job.id },
         create: {
           calloutJobId: job.id,
+          outcome: callOutcome,
           callbackDate,
           callbackTime,
           notes,
@@ -189,6 +201,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           analysisJson: analysisJson ?? undefined,
         },
         update: {
+          outcome: callOutcome ?? undefined,
           callbackDate: callbackDate ?? undefined,
           callbackTime: callbackTime ?? undefined,
           notes: notes ?? undefined,
@@ -204,8 +217,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         },
       });
 
-      // If we have callback info, post to Acengage API
-      if (callbackDate && job.employeeExternalId) {
+      // Always post to Acengage API when we have employee ID and outcome data
+      if (job.employeeExternalId) {
         try {
           // Get Acengage config from voice agent
           const voiceAgent = await prisma.voiceAgent.findUnique({
@@ -222,20 +235,42 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             ...(settingsJson.acengage as Record<string, unknown> | undefined),
           };
 
+          // Acengage NC Tree status codes mapping (using callOutcome from earlier)
+          const outcomeToStatusId: Record<string, number> = {
+            scheduled: 61430102,           // Callback Scheduling
+            callback_requested: 61430102,  // Callback Scheduling (asked to call later)
+            not_interested: 704,           // Does Not Wish To Give Feedback
+            busy: 713,                     // Busy
+            no_response: 718,              // Beep (no meaningful response)
+            disconnected: 720,             // Call Forwarded (call dropped)
+            wrong_number: 697,             // Does Not Exist
+            voicemail: 718,                // Beep (voicemail)
+            language_barrier: 704,         // Does Not Wish To Give Feedback
+            incomplete: 718,               // Beep (incomplete call)
+          };
+
+          const statusNodeId = callOutcome 
+            ? (outcomeToStatusId[callOutcome] ?? 61430102)
+            : 61430102;
+
+          // Build notes with outcome info
+          const outcomeNotes = [
+            notes,
+            callOutcome ? `Outcome: ${callOutcome}` : null,
+            sentiment ? `Sentiment: ${sentiment}` : null,
+          ].filter(Boolean).join(" | ");
+
           console.log(
-            `[complete] 📤 Posting to Acengage: employee=${job.employeeExternalId}, date=${callbackDate}, time=${callbackTime}`
+            `[complete] 📤 Posting to Acengage: employee=${job.employeeExternalId}, outcome=${callOutcome}, statusId=${statusNodeId}, date=${callbackDate}, time=${callbackTime}`
           );
 
-          // Get status node ID from config or use default (61430102 = Callback Scheduling)
-          const scheduledStatusNodeId = (acengageConfig as Record<string, unknown>).scheduledStatusNodeId as number | undefined ?? 61430102;
-          
           acengageResult = await updateNcSchedule({
             updateUrlTemplate: acengageConfig.updateUrlTemplate,
             employeeId: job.employeeExternalId,
-            callbackDate,
-            callbackTime,
-            nonContactableStatusNodeId: scheduledStatusNodeId,
-            notes,
+            callbackDate: callbackDate !== "null" ? callbackDate : undefined,
+            callbackTime: callbackTime !== "null" ? callbackTime : undefined,
+            nonContactableStatusNodeId: statusNodeId,
+            notes: outcomeNotes || undefined,
           });
 
           // Update outcome with posted timestamp

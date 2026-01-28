@@ -130,7 +130,7 @@ Analyze the conversation and extract the following information in JSON format:
 {{
   "callback_date": "YYYY-MM-DD format or null if not scheduled",
   "callback_time": "HH:MM in 24-hour format or null if not scheduled", 
-  "outcome": "scheduled | not_interested | callback_later | incomplete | no_clear_outcome",
+  "outcome": "scheduled | not_interested | callback_requested | no_response | disconnected | busy | wrong_number | language_barrier | voicemail | incomplete",
   
   "candidate_concerns": ["list of any concerns, worries, or hesitations expressed by the candidate"],
   "candidate_queries": ["list of questions or clarifications asked by the candidate"],
