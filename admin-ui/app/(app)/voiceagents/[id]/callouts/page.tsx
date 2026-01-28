@@ -614,7 +614,7 @@ export default function CalloutsPage() {
                             {job.outcome && (
                               <div className="pl-4 border-l-2 border-indigo-200 space-y-2">
                                 <div className="text-xs font-medium text-slate-500 uppercase mb-2">
-                                  📊 Gemini Analysis
+                                  📊 VoiceAgent Analysis
                                 </div>
                                 <div className="grid gap-2 text-xs">
                                   {job.outcome.cooperationLevel && (
