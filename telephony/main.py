@@ -158,10 +158,32 @@ async def _gemini_reader(
 ) -> None:
     try:
         async for msg in session.gemini.messages():
+            # Debug: log all unique message types to understand Gemini's response format
+            if cfg.DEBUG:
+                msg_keys = sorted(msg.keys())
+                sc = msg.get("serverContent", {})
+                sc_keys = sorted(sc.keys()) if sc else []
+                
+                # Log non-audio content messages
+                has_audio = bool(sc.get("modelTurn", {}).get("parts", [{}])[0].get("inlineData") if sc.get("modelTurn", {}).get("parts") else False)
+                if not has_audio and msg_keys:
+                    # Log the message structure for debugging
+                    if sc_keys and sc_keys != ['modelTurn']:
+                        print(f"[{session.ucid}] 📩 Gemini msg: keys={msg_keys}, serverContent={sc_keys}")
+            
             if cfg.DEBUG or cfg.LOG_TRANSCRIPTS:
                 if msg.get("setupComplete") and cfg.DEBUG:
                     print(f"[{session.ucid}] 🏁 Gemini setupComplete")
-                elif msg.get("serverContent"):
+                
+                # Check for transcription in various possible locations
+                sc = msg.get("serverContent", {})
+                for key in ["outputTranscription", "transcription", "text", "transcript"]:
+                    if sc.get(key):
+                        print(f"[{session.ucid}] 📝 serverContent.{key}: {sc[key]}")
+                    if msg.get(key):
+                        print(f"[{session.ucid}] 📝 root.{key}: {msg[key]}")
+                    
+                if msg.get("serverContent"):
                     # Log what type of content we're getting
                     sc = msg.get("serverContent", {})
                     model_turn = sc.get("modelTurn", {})
