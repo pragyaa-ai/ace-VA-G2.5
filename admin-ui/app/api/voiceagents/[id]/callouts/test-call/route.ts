@@ -114,7 +114,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         localDate,
         status: "TRIGGERED",
         requestedAt: now,
-        responseJson: callResult.response,
+        responseJson: callResult.response as object ?? undefined,
       },
     });
 
