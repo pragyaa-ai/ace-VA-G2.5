@@ -154,17 +154,42 @@ async def _end_call_monitor(session: TelephonySession, cfg: Config) -> None:
     """
     Monitor for end_after_turn flag and close the websocket.
     This runs as a separate task to ensure call ends even if Gemini stops sending messages.
+    Waits for audio to finish playing before closing.
     """
     try:
         while not session.closed:
             if session.end_after_turn:
-                # Wait for any remaining audio to be sent (2 seconds should be enough)
-                await asyncio.sleep(2.0)
+                # Wait for audio to finish - the confirmation message can be 10+ seconds
+                # We wait until the output buffer has been empty for a while
+                print(f"[{session.ucid}] ⏳ End requested, waiting for audio to finish...")
+                
+                # Wait at least 1 second, then check if buffer is still being filled
+                await asyncio.sleep(1.0)
+                
+                # Keep waiting while there's audio in the buffer or recent activity
+                empty_count = 0
+                max_wait = 15  # Maximum 15 seconds wait
+                waited = 0
+                
+                while waited < max_wait:
+                    if session.closed:
+                        return
+                    
+                    if not session.output_buffer:
+                        empty_count += 1
+                        # Buffer empty for 1.5 seconds (3 checks) = audio done
+                        if empty_count >= 3:
+                            break
+                    else:
+                        empty_count = 0  # Reset if buffer has data
+                    
+                    await asyncio.sleep(0.5)
+                    waited += 0.5
                 
                 if session.closed:
                     return
                 
-                print(f"[{session.ucid}] 📴 Closing call - end phrase detected, monitor triggered")
+                print(f"[{session.ucid}] 📴 Closing call - audio complete, waited {waited:.1f}s")
                 session.closed = True
                 
                 try:
@@ -273,11 +298,11 @@ async def _gemini_reader(
             if msg.get("setupComplete"):
                 if cfg.DEBUG:
                     print(f"[{session.ucid}] 🏁 VoiceAgent setupComplete")
-                # Send initial prompt to trigger greeting immediately
+                # Send minimal prompt to trigger greeting immediately
                 try:
-                    await session.gemini.send_text_prompt("The call has just connected. Start by greeting the candidate now.")
+                    await session.gemini.send_text_prompt("Go")
                     if cfg.DEBUG:
-                        print(f"[{session.ucid}] 🎬 Sent initial greeting trigger")
+                        print(f"[{session.ucid}] 🎬 Sent greeting trigger")
                 except Exception as e:
                     print(f"[{session.ucid}] ⚠️ Failed to send greeting trigger: {e}")
 
@@ -483,6 +508,7 @@ async def handle_client(client_ws):
         model_uri=cfg.model_uri,
         voice=cfg.GEMINI_VOICE,
         system_instructions=prompt,
+        temperature=0.7,  # Lower temperature for faster, more consistent responses
         enable_affective_dialog=True,
         enable_input_transcription=True,  # Capture user speech
         enable_output_transcription=True,
@@ -505,7 +531,15 @@ async def handle_client(client_ws):
     )
 
     try:
-        # Wait for start event to get real UCID before connecting upstream
+        # Start Gemini connection EARLY (while waiting for start event)
+        # This reduces latency by ~4 seconds as Gemini warms up in parallel
+        import time
+        connect_start = time.time()
+        if cfg.DEBUG:
+            print(f"[telephony] 🚀 Starting Gemini connection early...")
+        gemini_connect_task = asyncio.create_task(session.gemini.connect())
+        
+        # Wait for start event to get real UCID
         # Elision may sometimes send media before start, so we handle that
         if cfg.DEBUG:
             print(f"[telephony] ⏳ Waiting for start event (timeout=10s)...")
@@ -594,10 +628,11 @@ async def handle_client(client_ws):
             print(f"[{session.ucid}] 📱 Extracted phone: {session.phone_number}")
             print(f"[{session.ucid}] 🎬 Start processing, buffered {len(buffered_media)} media packets")
 
-        # Connect to Gemini
-        await session.gemini.connect()
+        # Wait for Gemini connection (started earlier for speed)
+        await gemini_connect_task
+        connect_elapsed = time.time() - connect_start
         if cfg.DEBUG:
-            print(f"[{session.ucid}] ✅ Connected to VoiceAgent AI")
+            print(f"[{session.ucid}] ✅ Connected to VoiceAgent AI ({connect_elapsed:.1f}s)")
 
         # Start reader task
         gemini_task = asyncio.create_task(_gemini_reader(session, audio_processor, cfg))
