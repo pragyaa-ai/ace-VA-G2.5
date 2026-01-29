@@ -220,7 +220,7 @@ async def _gemini_reader(
         async for msg in session.gemini.messages():
             if cfg.DEBUG or cfg.LOG_TRANSCRIPTS:
                 if msg.get("setupComplete") and cfg.DEBUG:
-                    print(f"[{session.ucid}] 🏁 Gemini setupComplete")
+                    print(f"[{session.ucid}] 🏁 VoiceAgent setupComplete")
                     
                 if msg.get("serverContent"):
                     # Log what type of content we're getting
@@ -230,7 +230,7 @@ async def _gemini_reader(
                     has_audio = any(p.get("inlineData") for p in parts if isinstance(p, dict))
                     has_text = any(p.get("text") for p in parts if isinstance(p, dict))
                     if has_audio and cfg.DEBUG and cfg.LOG_MEDIA:
-                        print(f"[{session.ucid}] 🎵 Gemini sent audio response")
+                        print(f"[{session.ucid}] 🎵 VoiceAgent sent audio response")
                     if cfg.LOG_TRANSCRIPTS or cfg.SAVE_TRANSCRIPTS:
                         sc = msg.get("serverContent", {})
                         
@@ -281,16 +281,16 @@ async def _gemini_reader(
                             if not output_trans:
                                 print(f"[{session.ucid}] 🔍 Turn complete but no text, serverContent keys: {sc_keys}")
                     if sc.get("turnComplete") and cfg.DEBUG:
-                        print(f"[{session.ucid}] ✅ Gemini turn complete")
+                        print(f"[{session.ucid}] ✅ VoiceAgent turn complete")
                 elif cfg.DEBUG:
                     # Log unknown message types
                     keys = list(msg.keys())
-                    print(f"[{session.ucid}] 📩 Gemini msg keys: {keys}")
+                    print(f"[{session.ucid}] 📩 VoiceAgent msg keys: {keys}")
 
             if _is_interrupted(msg):
                 # Barge-in: clear any queued audio to telephony
                 if cfg.DEBUG:
-                    print(f"[{session.ucid}] 🛑 Gemini interrupted → clearing output buffer")
+                    print(f"[{session.ucid}] 🛑 VoiceAgent interrupted → clearing output buffer")
                 session.output_buffer.clear()
                 
                 # Send clear command to Elision to stop audio playback immediately
@@ -353,7 +353,7 @@ async def _gemini_reader(
                 break
     except Exception as e:
         if cfg.DEBUG:
-            print(f"[{session.ucid}] ❌ Gemini reader error: {e}")
+            print(f"[{session.ucid}] ❌ VoiceAgent reader error: {e}")
 
 
 async def handle_client(client_ws):
@@ -518,7 +518,7 @@ async def handle_client(client_ws):
         # Connect to Gemini
         await session.gemini.connect()
         if cfg.DEBUG:
-            print(f"[{session.ucid}] ✅ Connected to Gemini Live")
+            print(f"[{session.ucid}] ✅ Connected to VoiceAgent AI")
 
         # Start reader task
         gemini_task = asyncio.create_task(_gemini_reader(session, audio_processor, cfg))
@@ -559,7 +559,7 @@ async def handle_client(client_ws):
                     chunks_sent += 1
                 
                 if cfg.DEBUG and chunks_sent > 0:
-                    print(f"[{session.ucid}] 🎤 Sent {chunks_sent} binary audio chunk(s) to Gemini")
+                    print(f"[{session.ucid}] 🎤 Sent {chunks_sent} binary audio chunk(s) to VoiceAgent")
                 continue
 
             if msg is None:
@@ -594,7 +594,7 @@ async def handle_client(client_ws):
                     chunks_sent += 1
 
                 if cfg.DEBUG and cfg.LOG_MEDIA and chunks_sent > 0:
-                    print(f"[{session.ucid}] 🎤 Sent {chunks_sent} audio chunk(s) to Gemini ({len(samples)} samples received)")
+                    print(f"[{session.ucid}] 🎤 Sent {chunks_sent} audio chunk(s) to VoiceAgent ({len(samples)} samples received)")
 
         gemini_task.cancel()
         try:
@@ -644,7 +644,7 @@ async def handle_client(client_ws):
                 if cfg.DEBUG:
                     outcome = result.get("outcome")
                     if outcome:
-                        print(f"[{session.ucid}] 📊 Gemini Analysis:")
+                        print(f"[{session.ucid}] 📊 VoiceAgent Analysis:")
                         print(f"         outcome={outcome.outcome}, date={outcome.callback_date}, time={outcome.callback_time}")
                         print(f"         sentiment={outcome.sentiment}, cooperation={outcome.cooperation_level}")
                         if outcome.candidate_concerns:

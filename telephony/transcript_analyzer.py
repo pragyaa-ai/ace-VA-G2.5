@@ -303,11 +303,11 @@ def analyze_transcript_sync(
     }
     
     try:
-        print("[analyzer] 🔍 Analyzing transcript with Gemini 2.0 Flash...")
+        print("[analyzer] 🔍 Analyzing transcript with VoiceAgent AI...")
         response = requests.post(url, headers=headers, json=payload, timeout=30)
         
         if response.status_code != 200:
-            print(f"[analyzer] ❌ Gemini API error ({response.status_code}): {response.text[:500]}")
+            print(f"[analyzer] ❌ AI analysis error ({response.status_code}): {response.text[:500]}")
             return AnalyzedOutcome(outcome="analysis_failed", confidence=0.0)
         
         result = response.json()
@@ -315,13 +315,13 @@ def analyze_transcript_sync(
         # Extract text from response
         candidates = result.get("candidates", [])
         if not candidates:
-            print("[analyzer] ⚠️ No candidates in Gemini response")
+            print("[analyzer] ⚠️ No candidates in AI response")
             return AnalyzedOutcome(outcome="analysis_failed", confidence=0.0)
         
         content = candidates[0].get("content", {})
         parts = content.get("parts", [])
         if not parts:
-            print("[analyzer] ⚠️ No parts in Gemini response")
+            print("[analyzer] ⚠️ No parts in AI response")
             return AnalyzedOutcome(outcome="analysis_failed", confidence=0.0)
         
         response_text = parts[0].get("text", "")
@@ -356,7 +356,7 @@ def analyze_transcript_sync(
         return outcome
         
     except requests.Timeout:
-        print("[analyzer] ⏰ Gemini API timeout")
+        print("[analyzer] ⏰ AI analysis timeout")
         return AnalyzedOutcome(outcome="timeout", confidence=0.0)
     except Exception as e:
         print(f"[analyzer] ❌ Analysis error: {e}")
@@ -416,7 +416,7 @@ async def analyze_transcript_async(
     }
     
     try:
-        print(f"[analyzer] 🔍 Analyzing transcript with Gemini 2.0 Flash (async)...")
+        print(f"[analyzer] 🔍 Analyzing transcript with VoiceAgent AI (async)...")
         print(f"[analyzer] 📡 Transcripts: {len(transcripts)} entries")
         print(f"[analyzer] 📡 URL: {url[:100]}...")
         
@@ -426,7 +426,7 @@ async def analyze_transcript_async(
                 response_text_raw = await response.text()
                 
                 if response.status != 200:
-                    print(f"[analyzer] ❌ Gemini API error ({response.status}): {response_text_raw[:500]}")
+                    print(f"[analyzer] ❌ AI analysis error ({response.status}): {response_text_raw[:500]}")
                     return AnalyzedOutcome(outcome="analysis_failed", confidence=0.0)
                 
                 try:
@@ -439,7 +439,7 @@ async def analyze_transcript_async(
         # Extract text from response
         candidates = result.get("candidates", [])
         if not candidates:
-            print(f"[analyzer] ⚠️ No candidates in Gemini response. Keys: {list(result.keys())}")
+            print(f"[analyzer] ⚠️ No candidates in AI response. Keys: {list(result.keys())}")
             if "error" in result:
                 print(f"[analyzer] ❌ API Error: {result['error']}")
             return AnalyzedOutcome(outcome="analysis_failed", confidence=0.0)
@@ -447,11 +447,11 @@ async def analyze_transcript_async(
         content = candidates[0].get("content", {})
         parts = content.get("parts", [])
         if not parts:
-            print(f"[analyzer] ⚠️ No parts in Gemini response. Content keys: {list(content.keys())}")
+            print(f"[analyzer] ⚠️ No parts in AI response. Content keys: {list(content.keys())}")
             return AnalyzedOutcome(outcome="analysis_failed", confidence=0.0)
         
         response_text = parts[0].get("text", "")
-        print(f"[analyzer] 📝 Gemini response length: {len(response_text)} chars")
+        print(f"[analyzer] 📝 AI response length: {len(response_text)} chars")
         
         analysis = _parse_gemini_response(response_text)
         

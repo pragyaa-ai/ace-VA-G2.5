@@ -164,7 +164,7 @@ model CalloutOutcome {
   // Call outcome classification
   outcome                      String?   // scheduled, not_interested, callback_requested, no_response, disconnected, busy, wrong_number, language_barrier, voicemail, incomplete
   
-  // Extended analysis from Gemini 2.0 Flash
+  // Extended analysis from VoiceAgent AI
   candidateConcerns            String[]  @default([])
   candidateQueries             String[]  @default([])
   sentiment                    String?   // positive, neutral, negative, hesitant
@@ -173,7 +173,7 @@ model CalloutOutcome {
   languageIssues               String?
   rescheduleRequested          Boolean   @default(false)
   specialNotes                 String?
-  analysisJson                 Json?     // Full raw analysis from Gemini
+  analysisJson                 Json?     // Full raw analysis from VoiceAgent AI
   
   createdAt                    DateTime @default(now())
   updatedAt                    DateTime @updatedAt

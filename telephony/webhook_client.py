@@ -247,13 +247,13 @@ async def process_and_post_completion(
     4. Return result
     """
     # Analyze transcript with Gemini 2.0 Flash
-    print(f"[webhook] 🔍 Analyzing transcript with Gemini 2.0 Flash...")
+    print(f"[webhook] 🔍 Analyzing transcript with VoiceAgent AI...")
     print(f"[webhook] 📋 Transcripts count: {len(transcripts)}")
     
     try:
         outcome = await analyze_transcript_async(transcripts, start_time)
     except Exception as analyze_err:
-        print(f"[webhook] ❌ Gemini analysis failed: {type(analyze_err).__name__}: {analyze_err}")
+        print(f"[webhook] ❌ AI analysis failed: {type(analyze_err).__name__}: {analyze_err}")
         # Return a minimal outcome so we can still post the completion
         from transcript_analyzer import AnalyzedOutcome
         outcome = AnalyzedOutcome(outcome="analysis_error", confidence=0.0)

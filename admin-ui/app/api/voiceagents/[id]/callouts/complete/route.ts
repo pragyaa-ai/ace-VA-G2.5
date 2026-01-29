@@ -25,7 +25,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       callbackDate,
       callbackTime,
       notes,
-      // Extended analysis fields from Gemini
+      // Extended analysis fields from VoiceAgent AI
       candidateConcerns,
       candidateQueries,
       sentiment,
