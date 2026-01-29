@@ -93,17 +93,7 @@ class GeminiLiveSession:
                     },
                     "activity_handling": self.cfg.activity_handling,
                 },
-                # Tool for Gemini to signal end of conversation
-                "tools": [
-                    {
-                        "function_declarations": [
-                            {
-                                "name": "end_call",
-                                "description": "Call this function when the conversation is complete and the call should be ended. Use after saying goodbye, when user confirms they have no more questions, or when the scheduling is done.",
-                            }
-                        ]
-                    }
-                ],
+                # Tools disabled - end_call was being called prematurely by Gemini
             }
         }
 

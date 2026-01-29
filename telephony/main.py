@@ -306,28 +306,8 @@ async def _gemini_reader(
                 except Exception as e:
                     print(f"[{session.ucid}] ⚠️ Failed to send greeting trigger: {e}")
 
-            # Handle tool/function calls from Gemini (e.g., end_call)
-            tool_call = msg.get("toolCall")
-            if tool_call:
-                function_calls = tool_call.get("functionCalls", [])
-                for fc in function_calls:
-                    func_name = fc.get("name")
-                    if func_name == "end_call":
-                        print(f"[{session.ucid}] 📴 Gemini called end_call() - conversation complete")
-                        session.end_after_turn = True
-                        # Send function response to acknowledge
-                        try:
-                            await session.gemini.send_json({
-                                "toolResponse": {
-                                    "functionResponses": [{
-                                        "id": fc.get("id"),
-                                        "name": "end_call",
-                                        "response": {"status": "ok", "message": "Call will be ended"}
-                                    }]
-                                }
-                            })
-                        except Exception:
-                            pass
+            # Tool/function call handling disabled - end_call was being called prematurely
+            # Calls will end when Elision disconnects or times out
 
             if cfg.DEBUG or cfg.LOG_TRANSCRIPTS:
                     
@@ -637,8 +617,9 @@ async def handle_client(client_ws):
         # Start reader task
         gemini_task = asyncio.create_task(_gemini_reader(session, audio_processor, cfg))
         
-        # Start end-call monitor task (runs independently to ensure call closes)
-        end_monitor_task = asyncio.create_task(_end_call_monitor(session, cfg))
+        # End-call monitor disabled - was closing calls prematurely
+        # end_monitor_task = asyncio.create_task(_end_call_monitor(session, cfg))
+        end_monitor_task = None
         
         # Process any buffered media that arrived before start
         for buffered_msg in buffered_media:
@@ -714,15 +695,17 @@ async def handle_client(client_ws):
                     print(f"[{session.ucid}] 🎤 Sent {chunks_sent} audio chunk(s) to VoiceAgent ({len(samples)} samples received)")
 
         gemini_task.cancel()
-        end_monitor_task.cancel()
+        if end_monitor_task:
+            end_monitor_task.cancel()
         try:
             await gemini_task
         except asyncio.CancelledError:
             pass
-        try:
-            await end_monitor_task
-        except asyncio.CancelledError:
-            pass
+        if end_monitor_task:
+            try:
+                await end_monitor_task
+            except asyncio.CancelledError:
+                pass
 
     except asyncio.TimeoutError:
         print(f"[{session.ucid}] ⏰ Timeout waiting for start event - closing connection")
