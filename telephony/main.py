@@ -281,6 +281,29 @@ async def _gemini_reader(
                 except Exception as e:
                     print(f"[{session.ucid}] ⚠️ Failed to send greeting trigger: {e}")
 
+            # Handle tool/function calls from Gemini (e.g., end_call)
+            tool_call = msg.get("toolCall")
+            if tool_call:
+                function_calls = tool_call.get("functionCalls", [])
+                for fc in function_calls:
+                    func_name = fc.get("name")
+                    if func_name == "end_call":
+                        print(f"[{session.ucid}] 📴 Gemini called end_call() - conversation complete")
+                        session.end_after_turn = True
+                        # Send function response to acknowledge
+                        try:
+                            await session.gemini.send_json({
+                                "toolResponse": {
+                                    "functionResponses": [{
+                                        "id": fc.get("id"),
+                                        "name": "end_call",
+                                        "response": {"status": "ok", "message": "Call will be ended"}
+                                    }]
+                                }
+                            })
+                        except Exception:
+                            pass
+
             if cfg.DEBUG or cfg.LOG_TRANSCRIPTS:
                     
                 if msg.get("serverContent"):

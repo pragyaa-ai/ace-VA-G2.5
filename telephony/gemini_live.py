@@ -68,7 +68,7 @@ class GeminiLiveSession:
                 self.cfg.service_url, extra_headers=headers, ssl=ssl_context
             )
 
-        # Send setup message
+        # Send setup message with end_call tool
         setup_msg = {
             "setup": {
                 "model": self.cfg.model_uri,
@@ -93,6 +93,17 @@ class GeminiLiveSession:
                     },
                     "activity_handling": self.cfg.activity_handling,
                 },
+                # Tool for Gemini to signal end of conversation
+                "tools": [
+                    {
+                        "function_declarations": [
+                            {
+                                "name": "end_call",
+                                "description": "Call this function when the conversation is complete and the call should be ended. Use after saying goodbye, when user confirms they have no more questions, or when the scheduling is done.",
+                            }
+                        ]
+                    }
+                ],
             }
         }
 
