@@ -270,6 +270,8 @@ async def _gemini_reader(
                                         phrases = [p.strip().lower() for p in cfg.END_CALL_PHRASES.split(",")]
                                         if _should_end_call([full_text], phrases):
                                             session.end_after_turn = True
+                                            if cfg.DEBUG:
+                                                print(f"[{session.ucid}] 🔚 End phrase detected: '{full_text[:50]}...' - will close after audio")
                                 session.current_agent_transcript.clear()
                         
                         # Handle inputTranscription (user speech) - if enabled
@@ -355,6 +357,9 @@ async def _gemini_reader(
                     break
 
             if session.end_after_turn and not session.output_buffer:
+                # Wait a moment to ensure final audio is sent
+                await asyncio.sleep(0.5)
+                print(f"[{session.ucid}] 📴 Closing call - end phrase detected, audio complete")
                 try:
                     await session.client_ws.close(code=1000, reason="Call completed")
                 except Exception:

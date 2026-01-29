@@ -36,9 +36,9 @@ class Config:
     LOG_TRANSCRIPTS: bool = _env_bool("LOG_TRANSCRIPTS", True)
     SAVE_TRANSCRIPTS: bool = _env_bool("SAVE_TRANSCRIPTS", True)
     TRANSCRIPTS_DIR: str = os.getenv("TRANSCRIPTS_DIR", "data/transcripts")
-    AUTO_END_CALL: bool = _env_bool("AUTO_END_CALL", False)
+    AUTO_END_CALL: bool = _env_bool("AUTO_END_CALL", True)  # Enabled by default
     END_CALL_PHRASES: str = os.getenv(
-        "END_CALL_PHRASES", "thank you,thanks,thank-you,goodbye,bye"
+        "END_CALL_PHRASES", "thank you,thanks,thank-you,goodbye,bye,take care,have a great day,have a nice day"
     )
 
     # Webhook configuration for posting outcomes to admin-ui
