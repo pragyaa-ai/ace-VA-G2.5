@@ -84,6 +84,7 @@ export const triggerElisionCall = async (input: TriggerElisionCallInput): Promis
 
     console.log(`[elision] 📞 Triggering call to ${input.phoneNumber}`);
     console.log(`[elision] 📋 Request params: listId=${input.listId}, source=${input.source}, addToHopper=${input.addToHopper}`);
+    console.log(`[elision] 📋 Comments (webhook): ${input.comments}`);
     console.log(`[elision] 🔗 URL: ${input.addLeadUrl}`);
 
     const res = await fetch(input.addLeadUrl, {
