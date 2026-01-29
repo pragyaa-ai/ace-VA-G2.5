@@ -137,6 +137,7 @@ export default function CalloutsPage() {
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [resettingJob, setResettingJob] = useState<string | null>(null);
 
   // Outcome form state
   const [selectedJobId, setSelectedJobId] = useState("");
@@ -238,6 +239,30 @@ export default function CalloutsPage() {
       setNotes("");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleResetJob = async (jobId: string, jobName: string) => {
+    if (!confirm(`Reset "${jobName}" to PENDING? This will delete all attempts and outcomes.`)) {
+      return;
+    }
+    setResettingJob(jobId);
+    try {
+      const res = await fetch(`/api/voiceagents/${params.id}/callouts/jobs/${jobId}/reset`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Failed to reset job");
+        return;
+      }
+      // Refresh data
+      fetchData();
+    } catch (err) {
+      console.error("Reset failed:", err);
+      alert("Failed to reset job");
+    } finally {
+      setResettingJob(null);
     }
   };
 
@@ -674,6 +699,25 @@ export default function CalloutsPage() {
                                 </div>
                               </div>
                             )}
+
+                            {/* Actions */}
+                            <div className="mt-4 pt-4 border-t border-slate-200 flex items-center gap-3">
+                              {job.status !== "PENDING" && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleResetJob(job.id, job.employeeName || job.employeePhone || "Unknown");
+                                  }}
+                                  disabled={resettingJob === job.id}
+                                  className="px-3 py-1.5 text-xs font-medium rounded bg-amber-100 text-amber-700 hover:bg-amber-200 disabled:opacity-50"
+                                >
+                                  {resettingJob === job.id ? "Resetting..." : "🔄 Reset to Pending"}
+                                </button>
+                              )}
+                              <span className="text-xs text-slate-400">
+                                Job ID: {job.id.slice(0, 8)}...
+                              </span>
+                            </div>
                           </div>
                         </td>
                       </tr>
