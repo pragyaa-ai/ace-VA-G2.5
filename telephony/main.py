@@ -218,9 +218,19 @@ async def _gemini_reader(
 ) -> None:
     try:
         async for msg in session.gemini.messages():
-            if cfg.DEBUG or cfg.LOG_TRANSCRIPTS:
-                if msg.get("setupComplete") and cfg.DEBUG:
+            # Handle setupComplete - trigger immediate greeting
+            if msg.get("setupComplete"):
+                if cfg.DEBUG:
                     print(f"[{session.ucid}] 🏁 VoiceAgent setupComplete")
+                # Send initial prompt to trigger greeting immediately
+                try:
+                    await session.gemini.send_text_prompt("The call has just connected. Start by greeting the candidate now.")
+                    if cfg.DEBUG:
+                        print(f"[{session.ucid}] 🎬 Sent initial greeting trigger")
+                except Exception as e:
+                    print(f"[{session.ucid}] ⚠️ Failed to send greeting trigger: {e}")
+
+            if cfg.DEBUG or cfg.LOG_TRANSCRIPTS:
                     
                 if msg.get("serverContent"):
                     # Log what type of content we're getting

@@ -122,6 +122,22 @@ class GeminiLiveSession:
             }
         )
 
+    async def send_text_prompt(self, text: str) -> None:
+        """Send a text prompt to trigger Gemini to respond (e.g., start greeting)."""
+        await self.send_json(
+            {
+                "client_content": {
+                    "turns": [
+                        {
+                            "role": "user",
+                            "parts": [{"text": text}]
+                        }
+                    ],
+                    "turn_complete": True
+                }
+            }
+        )
+
     async def messages(self) -> AsyncIterator[dict]:
         if not self._ws:
             raise RuntimeError("GeminiLiveSession not connected")
