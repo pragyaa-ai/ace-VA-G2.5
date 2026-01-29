@@ -150,6 +150,45 @@ def _should_end_call(texts: list[str], phrases: list[str]) -> bool:
     return any(phrase for phrase in phrases if phrase and phrase in combined)
 
 
+async def _end_call_monitor(session: TelephonySession, cfg: Config) -> None:
+    """
+    Monitor for end_after_turn flag and close the websocket.
+    This runs as a separate task to ensure call ends even if Gemini stops sending messages.
+    """
+    try:
+        while not session.closed:
+            if session.end_after_turn:
+                # Wait for any remaining audio to be sent (2 seconds should be enough)
+                await asyncio.sleep(2.0)
+                
+                if session.closed:
+                    return
+                
+                print(f"[{session.ucid}] 📴 Closing call - end phrase detected, monitor triggered")
+                session.closed = True
+                
+                try:
+                    # Close Gemini connection
+                    await session.gemini.close()
+                except Exception:
+                    pass
+                
+                try:
+                    # Close Elision websocket
+                    await session.client_ws.close(code=1000, reason="Call completed")
+                except Exception:
+                    pass
+                
+                return
+            
+            # Check every 500ms
+            await asyncio.sleep(0.5)
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        print(f"[{session.ucid}] ⚠️ End call monitor error: {e}")
+
+
 async def _process_media_message(
     session: TelephonySession, 
     msg: Dict[str, Any], 
@@ -366,38 +405,8 @@ async def _gemini_reader(
                             print(f"[{session.ucid}] ❌ Telephony send failed: {send_err}")
                         break
 
-            # Check for end-of-call after EVERY message (not just audio)
-            # This ensures we close even when Gemini stops sending audio
-            if session.end_after_turn:
-                # Flush any remaining audio in buffer
-                while session.output_buffer:
-                    chunk_size = min(len(session.output_buffer), cfg.AUDIO_BUFFER_SAMPLES_OUTPUT)
-                    chunk = session.output_buffer[:chunk_size]
-                    session.output_buffer = session.output_buffer[chunk_size:]
-                    
-                    pcm_bytes = struct.pack(f'<{len(chunk)}h', *chunk)
-                    alaw_bytes = audioop.lin2alaw(pcm_bytes, 2)
-                    payload_b64 = base64.b64encode(alaw_bytes).decode('ascii')
-                    
-                    payload = {
-                        "event": "media",
-                        "stream_sid": session.ucid,
-                        "media": {"payload": payload_b64}
-                    }
-                    try:
-                        await session.client_ws.send(json.dumps(payload))
-                    except Exception:
-                        break
-                
-                # Wait for audio to play out
-                await asyncio.sleep(1.0)
-                print(f"[{session.ucid}] 📴 Closing call - end phrase detected, audio complete")
-                try:
-                    await session.client_ws.close(code=1000, reason="Call completed")
-                except Exception:
-                    pass
-                session.closed = True
-                break
+            # End-of-call is handled by _end_call_monitor task running in parallel
+            # This allows closing even when Gemini stops sending messages
     except Exception as e:
         if cfg.DEBUG:
             print(f"[{session.ucid}] ❌ VoiceAgent reader error: {e}")
@@ -570,6 +579,9 @@ async def handle_client(client_ws):
         # Start reader task
         gemini_task = asyncio.create_task(_gemini_reader(session, audio_processor, cfg))
         
+        # Start end-call monitor task (runs independently to ensure call closes)
+        end_monitor_task = asyncio.create_task(_end_call_monitor(session, cfg))
+        
         # Process any buffered media that arrived before start
         for buffered_msg in buffered_media:
             await _process_media_message(session, buffered_msg, audio_processor, cfg)
@@ -644,8 +656,13 @@ async def handle_client(client_ws):
                     print(f"[{session.ucid}] 🎤 Sent {chunks_sent} audio chunk(s) to VoiceAgent ({len(samples)} samples received)")
 
         gemini_task.cancel()
+        end_monitor_task.cancel()
         try:
             await gemini_task
+        except asyncio.CancelledError:
+            pass
+        try:
+            await end_monitor_task
         except asyncio.CancelledError:
             pass
 
