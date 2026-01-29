@@ -298,9 +298,9 @@ async def _gemini_reader(
             if msg.get("setupComplete"):
                 if cfg.DEBUG:
                     print(f"[{session.ucid}] 🏁 VoiceAgent setupComplete")
-                # Send minimal prompt to trigger greeting immediately
+                # Send prompt to trigger greeting immediately
                 try:
-                    await session.gemini.send_text_prompt("Go")
+                    await session.gemini.send_text_prompt("[CALL_CONNECTED] A new call has started. Greet the user now.")
                     if cfg.DEBUG:
                         print(f"[{session.ucid}] 🎬 Sent greeting trigger")
                 except Exception as e:
