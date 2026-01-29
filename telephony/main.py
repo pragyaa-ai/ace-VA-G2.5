@@ -132,9 +132,21 @@ def _extract_transcripts(msg: Dict[str, Any]) -> list[str]:
 
 
 def _should_end_call(texts: list[str], phrases: list[str]) -> bool:
+    """
+    Check if agent response indicates end of call.
+    Only triggers for SHORT responses containing farewell phrases.
+    This prevents false positives like "thank you for confirming your details".
+    """
     if not texts:
         return False
-    combined = " ".join(texts).lower()
+    combined = " ".join(texts).lower().strip()
+    
+    # Only consider short responses (< 100 chars) as potential farewells
+    # Long responses with "thank you" are likely mid-conversation
+    if len(combined) > 100:
+        return False
+    
+    # Check if any end phrase is present
     return any(phrase for phrase in phrases if phrase and phrase in combined)
 
 
@@ -323,42 +335,62 @@ async def _gemini_reader(
                 continue
 
             audio_b64 = _extract_audio_b64_from_gemini_message(msg)
-            if not audio_b64:
-                continue
+            if audio_b64:
+                samples_8k = audio_processor.process_output_gemini_b64_to_8k_samples(audio_b64)
+                session.output_buffer.extend(samples_8k)
 
-            samples_8k = audio_processor.process_output_gemini_b64_to_8k_samples(audio_b64)
-            session.output_buffer.extend(samples_8k)
+                # send consistent chunks
+                while len(session.output_buffer) >= cfg.AUDIO_BUFFER_SAMPLES_OUTPUT:
+                    chunk = session.output_buffer[: cfg.AUDIO_BUFFER_SAMPLES_OUTPUT]
+                    session.output_buffer = session.output_buffer[cfg.AUDIO_BUFFER_SAMPLES_OUTPUT :]
 
-            # send consistent chunks
-            while len(session.output_buffer) >= cfg.AUDIO_BUFFER_SAMPLES_OUTPUT:
-                chunk = session.output_buffer[: cfg.AUDIO_BUFFER_SAMPLES_OUTPUT]
-                session.output_buffer = session.output_buffer[cfg.AUDIO_BUFFER_SAMPLES_OUTPUT :]
+                    # Convert PCM samples to A-law and base64 for Elision
+                    pcm_bytes = struct.pack(f'<{len(chunk)}h', *chunk)
+                    alaw_bytes = audioop.lin2alaw(pcm_bytes, 2)
+                    payload_b64 = base64.b64encode(alaw_bytes).decode('ascii')
 
-                # Convert PCM samples to A-law and base64 for Elision
-                pcm_bytes = struct.pack(f'<{len(chunk)}h', *chunk)
-                alaw_bytes = audioop.lin2alaw(pcm_bytes, 2)
-                payload_b64 = base64.b64encode(alaw_bytes).decode('ascii')
-
-                # Send in Elision format
-                payload = {
-                    "event": "media",
-                    "stream_sid": session.ucid,
-                    "media": {
-                        "payload": payload_b64
+                    # Send in Elision format
+                    payload = {
+                        "event": "media",
+                        "stream_sid": session.ucid,
+                        "media": {
+                            "payload": payload_b64
+                        }
                     }
-                }
-                try:
-                    await session.client_ws.send(json.dumps(payload))
-                    if cfg.DEBUG and cfg.LOG_MEDIA:
-                        print(f"[{session.ucid}] 🔊 Sent {len(chunk)} samples to telephony (A-law)")
-                except Exception as send_err:
-                    if cfg.DEBUG:
-                        print(f"[{session.ucid}] ❌ Telephony send failed: {send_err}")
-                    break
+                    try:
+                        await session.client_ws.send(json.dumps(payload))
+                        if cfg.DEBUG and cfg.LOG_MEDIA:
+                            print(f"[{session.ucid}] 🔊 Sent {len(chunk)} samples to telephony (A-law)")
+                    except Exception as send_err:
+                        if cfg.DEBUG:
+                            print(f"[{session.ucid}] ❌ Telephony send failed: {send_err}")
+                        break
 
-            if session.end_after_turn and not session.output_buffer:
-                # Wait a moment to ensure final audio is sent
-                await asyncio.sleep(0.5)
+            # Check for end-of-call after EVERY message (not just audio)
+            # This ensures we close even when Gemini stops sending audio
+            if session.end_after_turn:
+                # Flush any remaining audio in buffer
+                while session.output_buffer:
+                    chunk_size = min(len(session.output_buffer), cfg.AUDIO_BUFFER_SAMPLES_OUTPUT)
+                    chunk = session.output_buffer[:chunk_size]
+                    session.output_buffer = session.output_buffer[chunk_size:]
+                    
+                    pcm_bytes = struct.pack(f'<{len(chunk)}h', *chunk)
+                    alaw_bytes = audioop.lin2alaw(pcm_bytes, 2)
+                    payload_b64 = base64.b64encode(alaw_bytes).decode('ascii')
+                    
+                    payload = {
+                        "event": "media",
+                        "stream_sid": session.ucid,
+                        "media": {"payload": payload_b64}
+                    }
+                    try:
+                        await session.client_ws.send(json.dumps(payload))
+                    except Exception:
+                        break
+                
+                # Wait for audio to play out
+                await asyncio.sleep(1.0)
                 print(f"[{session.ucid}] 📴 Closing call - end phrase detected, audio complete")
                 try:
                     await session.client_ws.close(code=1000, reason="Call completed")

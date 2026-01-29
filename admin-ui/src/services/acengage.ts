@@ -60,21 +60,38 @@ export const fetchNcEmployees = async (url: string): Promise<AcengageFetchResult
 
 export const updateNcSchedule = async (input: UpdateNcScheduleInput): Promise<unknown> => {
   const url = buildUpdateUrl(input.updateUrlTemplate, input.employeeId);
-  const payload: Record<string, unknown> = {};
-  if (input.callbackDate) payload.callback_date = input.callbackDate;
-  if (input.callbackTime) payload.callback_time = input.callbackTime;
-  if (input.nonContactableStatusNodeId !== undefined) {
-    payload.non_contactable_status_node_id = input.nonContactableStatusNodeId;
+  
+  // Always include all fields - use null for missing date/time
+  // Acengage API requires explicit null values
+  const payload: Record<string, unknown> = {
+    non_contactable_status_node_id: input.nonContactableStatusNodeId ?? 718,
+    callback_date: input.callbackDate || null,
+    callback_time: input.callbackTime || null,
+  };
+  
+  if (input.notes) {
+    payload.notes = input.notes;
   }
-  if (input.notes) payload.notes = input.notes;
+
+  console.log(`[acengage] 📤 POST ${url}`);
+  console.log(`[acengage] 📋 Payload: ${JSON.stringify(payload)}`);
 
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
+  
+  const responseText = await res.text();
+  console.log(`[acengage] 📨 Response (${res.status}): ${responseText}`);
+  
   if (!res.ok) {
-    throw new Error(`Acengage POST failed (${res.status})`);
+    throw new Error(`Acengage POST failed (${res.status}): ${responseText}`);
   }
-  return res.json();
+  
+  try {
+    return JSON.parse(responseText);
+  } catch {
+    return { raw: responseText };
+  }
 };
