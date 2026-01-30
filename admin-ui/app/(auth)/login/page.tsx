@@ -42,7 +42,7 @@ export default function LoginPage() {
         <form onSubmit={handleCredentialsLogin} className="mt-6 space-y-4">
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-slate-700">
-              Email
+              Username
             </label>
             <input
               id="email"
@@ -50,7 +50,7 @@ export default function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              placeholder="admin@voiceagent.ai"
+              placeholder="admin"
               required
             />
           </div>

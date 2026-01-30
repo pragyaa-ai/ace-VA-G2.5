@@ -5,45 +5,45 @@ const prisma = new PrismaClient();
 
 async function seedUsers() {
   // Seed admin user
-  const adminEmail = "admin@voiceagent.ai";
+  const adminUsername = "admin";
   const existingAdmin = await prisma.user.findUnique({
-    where: { email: adminEmail },
+    where: { email: adminUsername },
   });
 
   if (!existingAdmin) {
     const adminPassword = await bcrypt.hash("OneView01!", 10);
     await prisma.user.create({
       data: {
-        email: adminEmail,
+        email: adminUsername,
         name: "Admin",
         password: adminPassword,
         role: "ADMIN",
       },
     });
-    console.log("Created admin user:", adminEmail);
+    console.log("Created admin user:", adminUsername);
   } else {
-    console.log("Admin user already exists:", adminEmail);
+    console.log("Admin user already exists:", adminUsername);
   }
 
   // Seed acengage user
-  const acengageEmail = "acengage@voiceagent.ai";
+  const acengageUsername = "acengage";
   const existingAcengage = await prisma.user.findUnique({
-    where: { email: acengageEmail },
+    where: { email: acengageUsername },
   });
 
   if (!existingAcengage) {
     const acengagePassword = await bcrypt.hash("acengage123", 10);
     await prisma.user.create({
       data: {
-        email: acengageEmail,
+        email: acengageUsername,
         name: "Acengage User",
         password: acengagePassword,
         role: "USER",
       },
     });
-    console.log("Created acengage user:", acengageEmail);
+    console.log("Created acengage user:", acengageUsername);
   } else {
-    console.log("Acengage user already exists:", acengageEmail);
+    console.log("Acengage user already exists:", acengageUsername);
   }
 }
 
