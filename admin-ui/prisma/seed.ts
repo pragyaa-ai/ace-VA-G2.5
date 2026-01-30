@@ -1,8 +1,55 @@
 import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
+async function seedUsers() {
+  // Seed admin user
+  const adminEmail = "admin@voiceagent.ai";
+  const existingAdmin = await prisma.user.findUnique({
+    where: { email: adminEmail },
+  });
+
+  if (!existingAdmin) {
+    const adminPassword = await bcrypt.hash("OneView01!", 10);
+    await prisma.user.create({
+      data: {
+        email: adminEmail,
+        name: "Admin",
+        password: adminPassword,
+        role: "ADMIN",
+      },
+    });
+    console.log("Created admin user:", adminEmail);
+  } else {
+    console.log("Admin user already exists:", adminEmail);
+  }
+
+  // Seed acengage user
+  const acengageEmail = "acengage@voiceagent.ai";
+  const existingAcengage = await prisma.user.findUnique({
+    where: { email: acengageEmail },
+  });
+
+  if (!existingAcengage) {
+    const acengagePassword = await bcrypt.hash("acengage123", 10);
+    await prisma.user.create({
+      data: {
+        email: acengageEmail,
+        name: "Acengage User",
+        password: acengagePassword,
+        role: "USER",
+      },
+    });
+    console.log("Created acengage user:", acengageEmail);
+  } else {
+    console.log("Acengage user already exists:", acengageEmail);
+  }
+}
+
 async function main() {
+  // Seed users first
+  await seedUsers();
   // Check if USV Exit Interview Scheduler already exists
   const existing = await prisma.voiceAgent.findFirst({
     where: { name: "USV Exit Interview Scheduler" },

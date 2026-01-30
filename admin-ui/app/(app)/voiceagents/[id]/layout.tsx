@@ -3,23 +3,31 @@
 import Link from "next/link";
 import { usePathname, useParams } from "next/navigation";
 import { ReactNode } from "react";
+import { useSession } from "next-auth/react";
 
-const tabs = [
-  { segment: "", label: "Overview" },
-  { segment: "/callflow", label: "Call Flow" },
-  { segment: "/guardrails", label: "Guardrails" },
-  { segment: "/voice", label: "Voice" },
-  { segment: "/telephony", label: "Telephony" },
-  { segment: "/acengage", label: "Acengage" },
-  { segment: "/callouts", label: "Callouts" },
-  { segment: "/feedback", label: "Feedback" },
-  { segment: "/usage", label: "Usage" },
+const allTabs = [
+  { segment: "", label: "Overview", adminOnly: false },
+  { segment: "/callflow", label: "Call Flow", adminOnly: false },
+  { segment: "/guardrails", label: "Guardrails", adminOnly: false },
+  { segment: "/voice", label: "Voice", adminOnly: false },
+  { segment: "/telephony", label: "Telephony", adminOnly: true },
+  { segment: "/acengage", label: "Acengage", adminOnly: false },
+  { segment: "/callouts", label: "Callouts", adminOnly: false },
+  { segment: "/feedback", label: "Feedback", adminOnly: false },
+  { segment: "/usage", label: "Usage", adminOnly: false },
 ];
 
 export default function VoiceAgentLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const params = useParams();
+  const { data: session } = useSession();
   const base = `/voiceagents/${params.id}`;
+
+  const userRole = session?.user?.role || "USER";
+  const isAdmin = userRole === "ADMIN";
+
+  // Filter tabs based on user role
+  const tabs = allTabs.filter((tab) => !tab.adminOnly || isAdmin);
 
   return (
     <div className="space-y-6">
@@ -59,4 +67,3 @@ export default function VoiceAgentLayout({ children }: { children: ReactNode }) 
     </div>
   );
 }
-

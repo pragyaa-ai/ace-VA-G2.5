@@ -39,6 +39,7 @@ enum CalloutJobStatus {
   IN_PROGRESS
   COMPLETED
   ESCALATED
+  FAILED
 }
 
 enum CalloutAttemptStatus {
@@ -269,6 +270,12 @@ model CallSession {
   @@index([engine])
 }
 
+// ---- User Roles ----
+enum UserRole {
+  ADMIN
+  USER
+}
+
 // ---- NextAuth (Prisma Adapter compatible shape) ----
 model Account {
   id                String  @id @default(cuid())
@@ -307,6 +314,8 @@ model User {
   email         String?   @unique
   emailVerified DateTime?
   image         String?
+  password      String?   // Hashed password for credentials login
+  role          UserRole  @default(USER)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
