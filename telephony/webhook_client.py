@@ -169,6 +169,66 @@ class WebhookClient:
             print(f"[webhook] ❌ Unexpected error: {e}")
             return {"error": str(e)}
     
+    async def log_call_session(
+        self,
+        call_id: str,
+        direction: str,
+        from_number: Optional[str],
+        to_number: Optional[str],
+        started_at: Optional[datetime],
+        ended_at: Optional[datetime],
+        duration_sec: Optional[int] = None,
+        transcript_path: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Log a call session to admin-ui for usage tracking.
+        
+        Endpoint: POST /api/sessions
+        """
+        url = f"{self.config.admin_ui_base_url}/api/sessions"
+        
+        # Calculate duration if not provided
+        if duration_sec is None and started_at and ended_at:
+            duration_sec = int((ended_at - started_at).total_seconds())
+        
+        data = {
+            "voiceAgentId": self.config.voice_agent_id or None,
+            "direction": direction,
+            "fromNumber": from_number,
+            "toNumber": to_number,
+            "startedAt": started_at.isoformat() if started_at else None,
+            "endedAt": ended_at.isoformat() if ended_at else None,
+            "durationSec": duration_sec,
+            "callId": call_id,
+            "transcriptPath": transcript_path,
+        }
+        
+        try:
+            session = await self._get_session()
+            
+            print(f"[webhook] 📊 Logging call session to {url}")
+            
+            async with session.post(url, json=data) as response:
+                response_text = await response.text()
+                
+                if response.status == 200:
+                    result = json.loads(response_text)
+                    print(f"[webhook] ✅ Call session logged: {result.get('sessionId', 'unknown')}")
+                    return result
+                else:
+                    print(f"[webhook] ⚠️ Session log failed ({response.status}): {response_text}")
+                    return {"error": response_text, "status": response.status}
+                    
+        except asyncio.TimeoutError:
+            print(f"[webhook] ⏰ Timeout logging session")
+            return {"error": "timeout"}
+        except aiohttp.ClientError as e:
+            print(f"[webhook] ⚠️ HTTP error logging session: {e}")
+            return {"error": str(e)}
+        except Exception as e:
+            print(f"[webhook] ⚠️ Error logging session: {e}")
+            return {"error": str(e)}
+
     async def post_outcome(
         self,
         job_id: str,

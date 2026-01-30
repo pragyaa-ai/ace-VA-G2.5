@@ -764,6 +764,23 @@ async def handle_client(client_ws):
             if cfg.DEBUG:
                 print(f"[{session.ucid}] ⚠️ No phone number, skipping webhook")
         
+        # Log call session for usage tracking (always, even without transcripts)
+        if cfg.WEBHOOK_ENABLED:
+            try:
+                webhook_client = get_webhook_client()
+                end_time = datetime.now()
+                await webhook_client.log_call_session(
+                    call_id=session.ucid,
+                    direction="outbound",  # Acengage calls are outbound
+                    from_number=None,  # VoiceAgent number
+                    to_number=session.phone_number,
+                    started_at=session.call_start_time,
+                    ended_at=end_time,
+                    transcript_path=transcript_filepath,
+                )
+            except Exception as e:
+                print(f"[{session.ucid}] ⚠️ Session logging error: {e}")
+        
         try:
             await session.gemini.close()
         except Exception:
