@@ -13,6 +13,7 @@ const allTabs = [
   { segment: "/telephony", label: "Telephony", adminOnly: true },
   { segment: "/acengage", label: "Acengage", adminOnly: false },
   { segment: "/callouts", label: "Callouts", adminOnly: false },
+  { segment: "/analytics", label: "Analytics", adminOnly: false },
   { segment: "/feedback", label: "Feedback", adminOnly: false },
   { segment: "/usage", label: "Usage", adminOnly: false },
 ];

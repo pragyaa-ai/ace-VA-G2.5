@@ -73,8 +73,23 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const session = await prisma.callSession.create({
-      data: {
+    // Upsert to handle duplicate callIds
+    const session = await prisma.callSession.upsert({
+      where: { callId: callId || `temp_${Date.now()}` },
+      update: {
+        voiceAgentId: agentId || undefined,
+        direction,
+        fromNumber: fromNumber || null,
+        toNumber: toNumber || null,
+        endedAt: endedAt ? new Date(endedAt) : null,
+        durationSec: duration || null,
+        minutesBilled: minutesBilled || null,
+        metaJson: {
+          transcriptPath,
+        },
+      },
+      create: {
+        callId: callId || null,
         voiceAgentId: agentId || null,
         direction,
         fromNumber: fromNumber || null,
@@ -84,7 +99,6 @@ export async function POST(req: NextRequest) {
         durationSec: duration || null,
         minutesBilled: minutesBilled || null,
         metaJson: {
-          callId,
           transcriptPath,
         },
       },

@@ -252,6 +252,7 @@ model Feedback {
 
 model CallSession {
   id            String            @id @default(cuid())
+  callId        String?           @unique  // External call ID (UCID) - links to CalloutAttempt.callSid
   voiceAgentId  String?
   engine        VoiceAgentEngine  @default(PRIMARY)
   direction     String            @default("inbound")
@@ -268,6 +269,7 @@ model CallSession {
   @@index([voiceAgentId])
   @@index([startedAt])
   @@index([engine])
+  @@index([callId])
 }
 
 // ---- User Roles ----
