@@ -6,6 +6,7 @@ import { ReactNode } from "react";
 import { useSession } from "next-auth/react";
 
 const allTabs = [
+  { segment: "/analytics", label: "Analytics", adminOnly: false },
   { segment: "", label: "Overview", adminOnly: false },
   { segment: "/callflow", label: "Call Flow", adminOnly: false },
   { segment: "/guardrails", label: "Guardrails", adminOnly: false },
@@ -13,7 +14,6 @@ const allTabs = [
   { segment: "/telephony", label: "Telephony", adminOnly: true },
   { segment: "/acengage", label: "Acengage", adminOnly: false },
   { segment: "/callouts", label: "Callouts", adminOnly: false },
-  { segment: "/analytics", label: "Analytics", adminOnly: false },
   { segment: "/feedback", label: "Feedback", adminOnly: false },
   { segment: "/usage", label: "Usage", adminOnly: false },
 ];
