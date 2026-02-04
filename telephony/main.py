@@ -21,7 +21,7 @@ import json
 import os
 import struct
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -61,6 +61,21 @@ class TelephonySession:
     current_agent_transcript: List[str] = field(default_factory=list)  # Accumulates words in current turn
     call_start_time: Optional[datetime] = None
     phone_number: Optional[str] = None
+
+
+def _get_ist_now() -> datetime:
+    """Returns the current IST datetime."""
+    return datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
+
+
+def _get_ist_time_str(dt: datetime) -> str:
+    """Returns HH:MM AM/PM formatted IST time."""
+    return dt.strftime("%I:%M %p")
+
+
+def _get_ist_date_str(dt: datetime) -> str:
+    """Returns Day, Month DD, YYYY formatted IST date."""
+    return dt.strftime("%A, %B %d, %Y")
 
 
 def _read_prompt_text() -> str:
@@ -483,11 +498,23 @@ async def handle_client(client_ws):
         "wss://us-central1-aiplatform.googleapis.com/ws/"
         "google.cloud.aiplatform.v1beta1.LlmBidiService/BidiGenerateContent"
     )
+    ist_now = _get_ist_now()
+    ist_time_str = _get_ist_time_str(ist_now)
+    ist_date_str = _get_ist_date_str(ist_now)
+
+    # Prepare injected prompt info
+    time_info = (
+        f"\n\n--- CURRENT REAL-TIME INFO ---\n"
+        f"Current IST Time: {ist_time_str}\n"
+        f"Current IST Date: {ist_date_str}\n"
+        f"------------------------------\n"
+    )
+
     gemini_cfg = GeminiSessionConfig(
         service_url=service_url,
         model_uri=cfg.model_uri,
         voice=cfg.GEMINI_VOICE,
-        system_instructions=prompt,
+        system_instructions=prompt + time_info,
         temperature=0.7,  # Lower temperature for faster, more consistent responses
         enable_affective_dialog=True,
         enable_input_transcription=True,  # Capture user speech
@@ -604,9 +631,9 @@ async def handle_client(client_ws):
         if not session.phone_number:
             session.phone_number = qs.get("phone", [None])[0]
         
-        if cfg.DEBUG:
-            print(f"[{session.ucid}] 📱 Extracted phone: {session.phone_number}")
-            print(f"[{session.ucid}] 🎬 Start processing, buffered {len(buffered_media)} media packets")
+        # Log current IST time and date (calculated earlier)
+        print(f"[{session.ucid}] 🕐 Current IST Time: {ist_time_str}")
+        print(f"[{session.ucid}] 📅 Current IST Date: {ist_date_str}")
 
         # Wait for Gemini connection (started earlier for speed)
         await gemini_connect_task
