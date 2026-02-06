@@ -5,17 +5,19 @@ import { usePathname, useParams } from "next/navigation";
 import { ReactNode } from "react";
 import { useSession } from "next-auth/react";
 
+// Define which roles can see each tab
+// ADMIN can see all tabs, USER can only see specific tabs
 const allTabs = [
-  { segment: "/analytics", label: "Analytics", adminOnly: false },
-  { segment: "", label: "Overview", adminOnly: false },
-  { segment: "/callflow", label: "Call Flow", adminOnly: false },
-  { segment: "/guardrails", label: "Guardrails", adminOnly: false },
-  { segment: "/voice", label: "Voice", adminOnly: false },
-  { segment: "/telephony", label: "Telephony", adminOnly: true },
-  { segment: "/acengage", label: "Acengage", adminOnly: false },
-  { segment: "/callouts", label: "Callouts", adminOnly: false },
-  { segment: "/feedback", label: "Feedback", adminOnly: false },
-  { segment: "/usage", label: "Usage", adminOnly: false },
+  { segment: "/analytics", label: "Analytics", roles: ["ADMIN", "USER"] },
+  { segment: "", label: "Overview", roles: ["ADMIN"] },
+  { segment: "/callflow", label: "Call Flow", roles: ["ADMIN"] },
+  { segment: "/guardrails", label: "Guardrails", roles: ["ADMIN", "USER"] },
+  { segment: "/voice", label: "Voice", roles: ["ADMIN"] },
+  { segment: "/telephony", label: "Telephony", roles: ["ADMIN"] },
+  { segment: "/acengage", label: "Acengage", roles: ["ADMIN", "USER"] },
+  { segment: "/callouts", label: "Callouts", roles: ["ADMIN", "USER"] },
+  { segment: "/feedback", label: "Feedback", roles: ["ADMIN", "USER"] },
+  { segment: "/usage", label: "Usage", roles: ["ADMIN"] },
 ];
 
 export default function VoiceAgentLayout({ children }: { children: ReactNode }) {
@@ -24,11 +26,10 @@ export default function VoiceAgentLayout({ children }: { children: ReactNode }) 
   const { data: session } = useSession();
   const base = `/voiceagents/${params.id}`;
 
-  const userRole = session?.user?.role || "USER";
-  const isAdmin = userRole === "ADMIN";
+  const userRole = (session?.user?.role || "USER") as string;
 
   // Filter tabs based on user role
-  const tabs = allTabs.filter((tab) => !tab.adminOnly || isAdmin);
+  const tabs = allTabs.filter((tab) => tab.roles.includes(userRole));
 
   return (
     <div className="space-y-6">
