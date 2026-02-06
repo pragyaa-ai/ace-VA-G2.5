@@ -24,6 +24,7 @@ const DEFAULT_CONFIG = {
   listId: "250707112431",
   source: "Bot",
   addToHopper: "Y",
+  province: "",
   commentsTemplate: "wss://acengageva.pragyaa.ai/wsAcengage?phone=elision",
   accessToken: "",
 };
@@ -45,6 +46,7 @@ interface TelephonyConfig {
   listId: string;
   source: string;
   addToHopper: string;
+  province: string;
   commentsTemplate: string;
   accessToken: string;
 }
@@ -281,6 +283,18 @@ export default function TelephonyPage() {
               onChange={(e) => setConfig({ ...config, addToHopper: e.target.value })}
               placeholder="Y"
             />
+          </div>
+
+          <div className="sm:col-span-2">
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Province (Caller ID)</label>
+            <Input
+              value={config.province}
+              onChange={(e) => setConfig({ ...config, province: e.target.value })}
+              placeholder="917969288574"
+            />
+            <p className="mt-1 text-xs text-slate-400">
+              The caller ID number that will be displayed to the recipient. Format: country code + number (e.g. 917969288574)
+            </p>
           </div>
 
           <div className="sm:col-span-2">

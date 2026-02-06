@@ -129,15 +129,17 @@ export const triggerCalloutsForVoiceAgent = async (
   const listId = safeString(telephonyConfig.listId);
   const source = safeString(telephonyConfig.source) ?? "Bot";
   const addToHopper = safeString(telephonyConfig.addToHopper) ?? "Y";
+  const province = safeString(telephonyConfig.province) ?? "";
   const comments = safeString(telephonyConfig.commentsTemplate);
 
-  if (!authUrl || !addLeadUrl || !username || !password || !listId || !comments) {
+  if (!authUrl || !addLeadUrl || !username || !password || !listId || !comments || !province) {
     const missing = [];
     if (!authUrl) missing.push("authUrl");
     if (!addLeadUrl) missing.push("addLeadUrl");
     if (!username) missing.push("username");
     if (!password) missing.push("password");
     if (!listId) missing.push("listId");
+    if (!province) missing.push("province");
     if (!comments) missing.push("commentsTemplate");
     console.error("[callouts] Missing Elision telephony config", { voiceAgentId, missing });
     result.error = `Missing telephony config: ${missing.join(", ")}`;
@@ -231,6 +233,7 @@ export const triggerCalloutsForVoiceAgent = async (
         listId,
         source,
         addToHopper,
+        province,
         comments,
       });
 

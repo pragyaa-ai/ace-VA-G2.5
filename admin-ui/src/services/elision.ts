@@ -5,6 +5,7 @@ type ElisionCalloutInput = {
   listId: string;
   source: string;
   addToHopper: string;
+  province: string;
   comments: string;
 };
 
@@ -27,6 +28,7 @@ type TriggerElisionCallInput = {
   listId: string;
   source: string;
   addToHopper: string;
+  province: string;
   comments: string;
 };
 
@@ -80,10 +82,11 @@ export const triggerElisionCall = async (input: TriggerElisionCallInput): Promis
     form.append("list_id", input.listId);
     form.append("source", input.source);
     form.append("add_to_hopper", input.addToHopper);
+    form.append("province", input.province);
     form.append("comments", input.comments);
 
     console.log(`[elision] 📞 Triggering call to ${input.phoneNumber}`);
-    console.log(`[elision] 📋 Request params: listId=${input.listId}, source=${input.source}, addToHopper=${input.addToHopper}`);
+    console.log(`[elision] 📋 Request params: listId=${input.listId}, source=${input.source}, addToHopper=${input.addToHopper}, province=${input.province}`);
     console.log(`[elision] 📋 Comments (webhook): ${input.comments}`);
     console.log(`[elision] 🔗 URL: ${input.addLeadUrl}`);
 
@@ -127,6 +130,7 @@ export const triggerElisionCallout = async (input: ElisionCalloutInput): Promise
   form.append("list_id", input.listId);
   form.append("source", input.source);
   form.append("add_to_hopper", input.addToHopper);
+  form.append("province", input.province);
   form.append("comments", input.comments);
 
   const res = await fetch(input.addLeadUrl, {

@@ -37,16 +37,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const listId = telephonyConfig.listId as string;
     const source = (telephonyConfig.source as string) || "Bot";
     const addToHopper = (telephonyConfig.addToHopper as string) || "Y";
+    const province = (telephonyConfig.province as string) || "";
     const commentsUrl = telephonyConfig.commentsTemplate as string;
 
-    if (!authUrl || !addLeadUrl || !username || !password) {
+    if (!authUrl || !addLeadUrl || !username || !password || !province) {
       return NextResponse.json({ 
-        error: "Elision credentials not fully configured. Please fill in Auth URL, Add Lead URL, Username, and Password in the Telephony tab.",
+        error: "Elision credentials not fully configured. Please fill in Auth URL, Add Lead URL, Username, Password, and Province (Caller ID) in the Telephony tab.",
         missing: {
           authUrl: !authUrl,
           addLeadUrl: !addLeadUrl,
           username: !username,
           password: !password,
+          province: !province,
         }
       }, { status: 400 });
     }
@@ -65,6 +67,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       listId: listId || "",
       source,
       addToHopper,
+      province,
       comments: commentsUrl || "",
     });
 
